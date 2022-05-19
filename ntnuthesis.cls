@@ -7,6 +7,18 @@
 %% Kjetil Ørbekk an others, by CoPCSE@NTNU.
 
 %% IDENTIFICATION
+\RequirePackage{pgfgantt}
+\RequirePackage{tikz}
+\definecolor{barblue}{RGB}{153,204,254}
+\definecolor{groupblue}{RGB}{51,102,254}
+\definecolor{linkred}{RGB}{165,0,33}
+\renewcommand\sfdefault{phv}
+\renewcommand\mddefault{mc}
+\renewcommand\bfdefault{bc}
+\setganttlinklabel{s-s}{START-TO-START}
+\setganttlinklabel{f-s}{FINISH-TO-START}
+\setganttlinklabel{f-f}{FINISH-TO-FINISH}
+\setlength{\textfloatsep}{10pt plus 1.0pt minus 2.0pt}
 
 \xdef\ntnuthesisdate{2019/07/18}
 \NeedsTeXFormat{LaTeX2e}

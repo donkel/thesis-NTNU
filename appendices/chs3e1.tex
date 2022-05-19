@@ -1,0 +1,89 @@
+\section{Disable soft delete and delete backups}
+\label{app:chs3e1}
+In this experiment,
+soft delete is disabled before deleting backup items.
+This makes it impossible to recover the deleted backups by undeleting them.
+
+\subsection{Disable soft delete}
+\label{sec:org14b0b89}
+Disabling soft delete for the RSV:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Get RSV
+$RSV = Get-AzRecoveryServicesVault -Name $RSVName -ResourceGroupName $RGName
+
+Set-AzRecoveryServicesVaultProperty -VaultId $RSV.ID -SoftDeleteFeatureState Disable
+# StorageModelType                 :
+# StorageType                      :
+# StorageTypeState                 :
+# EnhancedSecurityState            : Enabled
+# SoftDeleteFeatureState           : Disabled
+# ResourceGuardOperationRequests   :
+# IsSoftDeleteFeatureStateEditable : True
+\end{minted}
+
+\subsection{Disable protection and delete backup items}
+\label{sec:org07675b2}
+Disabling protection and deleting all backup itemes in vault:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# List backup items
+$itemIds = az backup item list --resource-group $RGName --vault-name $RSVName | ConvertFrom-Json -AsHashtable | % {$_["id"]}
+
+# Delete each item
+foreach($id in $itemIds) {
+    az backup protection disable --backup-management-type AzureIaasVM --delete-backup-data true --ids $id
+}
+
+# Are you sure you want to perform this operation? (y/n): y
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupJobs/e3489fcc-c117-45c1-98e4-1f26521d7486",
+  "location": null,
+  "name": "e3489fcc-c117-45c1-98e4-1f26521d7486",
+  "properties": {
+    "actionsInfo": null,
+    "activityId": "9a528994-cec4-11ec-b1cb-0a580af44d46",
+    "backupManagementType": "AzureIaasVM",
+    "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+    "duration": "0:01:51.796137",
+    "endTime": "2022-05-08T11:49:08.863143+00:00",
+    "entityFriendlyName": "clickhouseVM",
+    "errorDetails": null,
+    "extendedInfo": {
+      "dynamicErrorMessage": null,
+      "estimatedRemainingDuration": null,
+      "internalPropertyBag": null,
+      "progressPercentage": null,
+      "propertyBag": {
+        "Number of Recovery Points": "4",
+        "VM Name": "clickhouseVM"
+      },
+      "tasksList": []
+    },
+    "isUserTriggered": null,
+    "jobType": "AzureIaaSVMJob",
+    "operation": "DeleteBackupData",
+    "startTime": "2022-05-08T11:47:17.067006+00:00",
+    "status": "Completed",
+    "virtualMachineVersion": "Compute"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupJobs"
+}
+\end{minted}
+
+\subsection{Verify deletion}
+\label{sec:org70d3c0f}
+Listing all backups in vault:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup item list --resource-group $RGName --vault-name $RSVName
+# []
+\end{minted}
+
+The result is an empty array, meaning there are no backup items to list.
+
+The backup item was also gone when viewed from the Azure Portal.

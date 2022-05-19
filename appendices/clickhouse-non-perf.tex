@@ -1,0 +1,1096 @@
+\section{Setup of test environment for ClickHouse experiments} 
+\label{app:ch-non-perf}
+This section contains documentation for how our ClickHouse test environment was set up
+in accordance with the specifications listed in the Method chapter (see \ref{method:ch-non-perf}).
+This test environment was used for tests that were not performance sensitive.
+
+Most commands were run in the Azure Cloud Shell.
+Instead of using the bash environment for the Azure CLI,
+we used the PowerShell environment.
+Backticks (\texttt{`}) are therefore used instead of backslashes (\texttt{\textbackslash{}}) to escape newlines.
+
+\subsection{Declare variables}
+\label{sec:org92d6807}
+The following variables were declared to make scripts more reusable:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+$AzCloudUser = "torstein"        # Name of Azure user used for CLI commands
+$RGName = "testRG"               # Name of resource group
+$CHName = "clickhouseVM"         # Name of VM running ClickHouse
+$SSHKey = "mySSHKey"             # Name of SSH key used to connect to VM
+$SSHPath = "/home/$AzCloudUser/.ssh/$SSHKey.pub"  # Path of SSH keys in Azure Cloud Shell storage
+$SAName = "chbksa"               # Name of storage account used by clickhouse-backup
+$ContainerName = "chbkcontainer" # Name of container storing clickhouse-backup data
+$StagingSAName = "stagingchsa"   # Name of storage account used for Azure Backup staging
+$SASExpDate = "2022-05-05"       # Expiry date of SAS token used by clickhouse-backup
+$location = "eastus"             # Location of Azure resources
+$RSVName = "myRSV"               # Name of Recovery Services Vault
+$subscription = "4b48eb85-91f3-4902-b74b-e84641fb6785"  # Subscription ID
+$PolicyName = "DefaultPolicy"    # Policy to be used by Azure Backup
+\end{minted}
+
+These variables were loaded the other (non-performance) experiments as well.
+
+\subsection{Generate SSH keys}
+\label{sec:org07a6fff}
+In order to connect to the VM via SSH, SSH keys needed to be generated.
+
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az sshkey create --name $SSHKey --resource-group $RGName
+\end{minted}
+
+Output:
+
+\begin{minted}[breaklines=true,breakanywhere=true]{text}
+No public key is provided. A key pair is being generated for you.
+Private key is saved to "/home/torstein/.ssh/1650965634_7008111".
+Public key is saved to "/home/torstein/.ssh/1650965634_7008111.pub".
+\end{minted}
+
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/TESTRG/providers/Microsoft.Compute/sshPublicKeys/mySSHKey",
+  "location": "eastus",
+  "name": "mySSHKey",
+  "publicKey": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC4N1FPh8lylHaF1Y2BpTCNNYkO\r\nJ0aaMLSklwBzdA4MrLY0vqnIhJY1QzB7NC3tOxOAqEZVQjqiOiFQRZu0ifV91odi\r\njwuEOWCWia8Wix0AKpxPlFIcUbWE4auf6KOSAAuoTCuXp3H29H+tGtuy/l1ZjBJb\r\nazxFz32j9uwEjVLtkYiYtSPxtnhuTnN6l5wkI36mxni6dQsTKQNTck4bmkU+BmSI\r\nQ4k5YXfhxV0UTqYL5WeVzVDTJnBrDFu8fClio/kcbhCn+w6B2yWfNFuvLmOlpIA6\r\nVZm4MaWpD9mp25J9YDcJ/Y5MewuNW7QqVNQDKfTrWXKz+blkKQ9DVzXvF63myNtQ\r\niMJdzLTvAbgTL0zXPw111r5x8KKHW0nCehWtKvHk2xh2sOcdSVSDu4uZN6eacAPC\r\n4Ii3rJ3QgjL1IxRTITBJ/oZAFxxFZCtPbPYF9pD2iURzibAvLkp5BhLwk954So8G\r\nMzRvVUnM7gtaVNL4UxCYHMbvibwkXaNtu2ZWjGU= generated-by-azure\r\n",
+  "resourceGroup": "TESTRG",
+  "tags": null,
+  "type": null
+}
+\end{minted}
+
+The keys were then renamed:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+cd ~/.ssh
+mv ./1650965634_7008111 $SSHKey
+mv ./1650965634_7008111.pub ($SSHKey + ".pub")
+\end{minted}
+
+These files were then copied to a local machine
+in order to be able to access virtual machines using SSH.
+\subsection{Set up a resource group}
+\label{sec:org880946b}
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az group create --name $RGName --location $location
+\end{minted}
+
+Output:
+
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG",
+  "location": "eastus",
+  "managedBy": null,
+  "name": "testRG",
+  "properties": {
+    "provisioningState": "Succeeded"
+  },
+  "tags": null,
+  "type": "Microsoft.Resources/resourceGroups"
+}
+\end{minted}
+\subsection{Set up a VM}
+\label{sec:orgccb5fe2}
+Create an Ubuntu VM:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az vm create `
+    --resource-group $RGName `
+    --name $CHName `
+    --image Canonical:UbuntuServer:16.04-LTS:16.04.202109280 `
+    --admin-username azureuser `
+    --size Standard_B1s `
+    --ssh-key-values $SSHPath `
+    --public-ip-sku Standard
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "fqdns": "",
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Compute/virtualMachines/clickhouseVM",
+  "location": "eastus",
+  "macAddress": "00-0D-3A-4F-38-61",
+  "powerState": "VM running",
+  "privateIpAddress": "10.0.0.4",
+  "publicIpAddress": "20.127.83.11",
+  "resourceGroup": "testRG",
+  "zones": ""
+}
+\end{minted}
+
+\subsection{Install ClickHouse}
+\label{sec:org2265ef7}
+Commands to install ClickHouse were copied from the installation guide in the ClickHouse documentation 
+\cite{noauthor_installation_nodate}.
+% [InstallationClickHouseDocs].
+
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo apt-get install -y apt-transport-https ca-certificates dirmngr
+sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 8919F6BD2B48D754
+
+echo "deb https://packages.clickhouse.com/deb stable main" | sudo tee \
+    /etc/apt/sources.list.d/clickhouse.list
+sudo apt-get update
+
+sudo apt-get install -y clickhouse-server clickhouse-client
+
+sudo service clickhouse-server start
+\end{minted}
+
+The commands were run as \texttt{azureuser} on the ClickHouse VM.
+The ClickHouse default user password was left empty.
+
+Upon running \texttt{clickhouse-client}, which is used to interact with the database, the following warnings were printed:
+\begin{minted}[breaklines=true,breakanywhere=true]{text}
+ * Linux transparent hugepage are set to "always".
+ * Linux threads max count is too low.
+ * Available memory at server startup is too low (2GiB).
+ * Maximum number of threads is lower than 30000. There could be problems with handling a lot of simultaneous queries.
+\end{minted}
+
+This is caused by the VM having quite weak hardware.
+The dataset we used was small enough,
+and the queries we ran were simple enough,
+for this now to be an issue.
+
+\subsection{Load test data}
+\label{sec:org62af589}
+A simple set of test data was retrieved from the ClickHouse website \cite{noauthor_cell_nodate}.
+%[CellTowersClickHouse]
+The data set contains cell tower data and is around 700MB.
+Since this data set is not intended for use in performance sensitive tests,
+we determined that it was sufficiently large.
+
+The data was loaded by following the instructions in the documentation.
+
+Load test data:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+# Download dataset
+wget https://datasets.clickhouse.com/cell_towers.csv.xz
+
+# Decompress dataset
+xz -d cell_towers.csv.xz
+
+# Load data into clickhouse
+clickhouse-client --query \
+"CREATE TABLE cell_towers_two
+(
+    radio Enum8('' = 0, 'CDMA' = 1, 'GSM' = 2, 'LTE' = 3, 'NR' = 4, 'UMTS' = 5),
+    mcc UInt16,
+    net UInt16,
+    area UInt16,
+    cell UInt64,
+    unit Int16,
+    lon Float64,
+    lat Float64,
+    range UInt32,
+    samples UInt32,
+    changeable UInt8,
+    created DateTime,
+    updated DateTime,
+    averageSignal UInt8
+)
+ENGINE = MergeTree ORDER BY (radio, mcc, net, created);"
+
+# Load test data into database
+clickhouse-client --query "INSERT INTO cell_towers FORMAT CSVWithNames" < cell_towers.csv
+\end{minted}
+
+\subsection{Run test queries}
+\label{sec:org19e6a30}
+The following test queries were run from \texttt{clickhouse-client} to verify that
+the data was loaded correctly.
+The results were compared with the results listed in the documentation \cite{noauthor_cell_nodate}.
+% [CellTowersClickHouse]
+
+The outputs of queries are shown in comments under the SQL statements.
+The \texttt{TabSeparated} format is used because the default output format
+contains Unicode characters that are difficult to display when using \LaTeX.
+
+Test query 1:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    radio,
+    count() AS c
+FROM cell_towers
+GROUP BY radio
+ORDER BY c DESC
+FORMAT TabSeparated
+
+-- Query id: 067359b9-2a3b-4683-9e85-74a50cd93719
+--
+-- UMTS    20686487
+-- LTE     12101148
+-- GSM     9931312
+-- CDMA    556344
+-- NR      867
+--
+-- 10 rows in set. Elapsed: 0.205 sec. Processed 43.28 million rows, 86.55 MB (211.56 million rows/s., 423.12 MB/s.)
+\end{minted}
+
+Test query 2:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    mcc,
+    count()
+FROM cell_towers
+GROUP BY mcc
+ORDER BY count() DESC
+LIMIT 10
+FORMAT TabSeparated
+
+-- Query id: 6f1c8ef2-f866-48d5-b521-abde9d34a65c
+--
+-- 310     5024650
+-- 262     2622423
+-- 250     1953176
+-- 208     1891187
+-- 724     1836150
+-- 404     1729151
+-- 234     1618924
+-- 510     1353998
+-- 440     1343355
+-- 311     1332798
+--
+-- 10 rows in set. Elapsed: 0.397 sec. Processed 43.28 million rows, 86.55 MB (108.92 million rows/s., 217.84 MB/s.)
+\end{minted}
+
+The results of both queries matched the results in the documentation.
+
+\subsection{Install \texttt{clickhouse-backup}}
+\label{sec:org7ea2ed5}
+The most recent (as of 2022-05-02) \texttt{clickhouse-backup} binary was downloaded
+from \texttt{clickhouse-backup}'s GitHub page \cite{akulov_clickhouse-backup_2022}.
+% [akulovClickhousebackup2022]
+
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+# Download archive containing binary
+wget https://github.com/AlexAkulov/clickhouse-backup/releases/download/v1.3.2/clickhouse-backup-linux-amd64.tar.gz
+
+# Decompress archive
+tar -zxvf clickhouse-backup-linux-amd64.tar.gz
+
+# Move binary to home directory
+mv build/linux/amd64/clickhouse-backup ~
+
+# Cleanup
+rmdir -p build/linux/amd64
+rm clickhouse-backup-linux-amd64.tar.gz
+\end{minted}
+\subsection{Set up Azure Blob storage for use with \texttt{clickhouse-backup}}
+\label{sec:org929d868}
+\texttt{clickhouse-backup} can store remote backups in Azure Blob Storage.
+This requires an Azure Storage Account and a Storage Container,
+which we created by following the instructions in the Azure documentation \cite{stevenmatthew_quickstart_nodate}
+% [stevenmatthewQuickstartUploadDownload]
+
+\subsubsection{Create a storage account}
+\label{sec:org292fd33}
+Create storage account:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage account create `
+    --name $SAName `
+    --resource-group $RGName `
+    --location eastus `
+    --sku Standard_LRS `
+    --encryption-services blob
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "accessTier": "Hot",
+  "allowBlobPublicAccess": true,
+  "allowCrossTenantReplication": null,
+  "allowSharedKeyAccess": null,
+  "allowedCopyScope": null,
+  "azureFilesIdentityBasedAuthentication": null,
+  "blobRestoreStatus": null,
+  "creationTime": "2022-04-30T10:14:26.700057+00:00",
+  "customDomain": null,
+  "defaultToOAuthAuthentication": null,
+  "dnsEndpointType": null,
+  "enableHttpsTrafficOnly": true,
+  "enableNfsV3": null,
+  "encryption": {
+    "encryptionIdentity": null,
+    "keySource": "Microsoft.Storage",
+    "keyVaultProperties": null,
+    "requireInfrastructureEncryption": null,
+    "services": {
+      "blob": {
+        "enabled": true,
+        "keyType": "Account",
+        "lastEnabledTime": "2022-04-30T10:14:26.825032+00:00"
+      },
+      "file": {
+        "enabled": true,
+        "keyType": "Account",
+        "lastEnabledTime": "2022-04-30T10:14:26.825032+00:00"
+      },
+      "queue": null,
+      "table": null
+    }
+  },
+  "extendedLocation": null,
+  "failoverInProgress": null,
+  "geoReplicationStats": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Storage/storageAccounts/chbksa",
+  "identity": null,
+  "immutableStorageWithVersioning": null,
+  "isHnsEnabled": null,
+  "isLocalUserEnabled": null,
+  "isSftpEnabled": null,
+  "keyCreationTime": {
+    "key1": "2022-04-30T10:14:26.825032+00:00",
+    "key2": "2022-04-30T10:14:26.825032+00:00"
+  },
+  "keyPolicy": null,
+  "kind": "StorageV2",
+  "largeFileSharesState": null,
+  "lastGeoFailoverTime": null,
+  "location": "eastus",
+  "minimumTlsVersion": "TLS1_0",
+  "name": "chbksa",
+  "networkRuleSet": {
+    "bypass": "AzureServices",
+    "defaultAction": "Allow",
+    "ipRules": [],
+    "resourceAccessRules": null,
+    "virtualNetworkRules": []
+  },
+  "primaryEndpoints": {
+    "blob": "https://chbksa.blob.core.windows.net/",
+    "dfs": "https://chbksa.dfs.core.windows.net/",
+    "file": "https://chbksa.file.core.windows.net/",
+    "internetEndpoints": null,
+    "microsoftEndpoints": null,
+    "queue": "https://chbksa.queue.core.windows.net/",
+    "table": "https://chbksa.table.core.windows.net/",
+    "web": "https://chbksa.z13.web.core.windows.net/"
+  },
+  "primaryLocation": "eastus",
+  "privateEndpointConnections": [],
+  "provisioningState": "Succeeded",
+  "publicNetworkAccess": null,
+  "resourceGroup": "testRG",
+  "routingPreference": null,
+  "sasPolicy": null,
+  "secondaryEndpoints": null,
+  "secondaryLocation": null,
+  "sku": {
+    "name": "Standard_LRS",
+    "tier": "Standard"
+  },
+  "statusOfPrimary": "available",
+  "statusOfSecondary": null,
+  "storageAccountSkuConversionStatus": null,
+  "tags": {},
+  "type": "Microsoft.Storage/storageAccounts"
+}
+\end{minted}
+
+\subsubsection{Create a storage container}
+\label{sec:org11db3a7}
+Create storage container:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage container create `
+    --account-name $SAName `
+    --name $ContainerName `
+    --auth-mode login
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "created": true
+}
+\end{minted}
+\subsection{Enable soft delete for Blob container}
+\label{sec:orgd26843b}
+Enable soft delete for Blob container:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage account blob-service-properties update `
+    --enable-container-delete-retention true `
+    --container-delete-retention-days 7 `
+    --account-name $SAName `
+    --resource-group $RGName
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "automaticSnapshotPolicyEnabled": null,
+  "changeFeed": null,
+  "containerDeleteRetentionPolicy": {
+    "allowPermanentDelete": null,
+    "days": 7,
+    "enabled": true
+  },
+  "cors": {
+    "corsRules": []
+  },
+  "defaultServiceVersion": null,
+  "deleteRetentionPolicy": {
+    "allowPermanentDelete": false,
+    "days": null,
+    "enabled": false
+  },
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Storage/storageAccounts/chbksa/blobServices/default",
+  "isVersioningEnabled": null,
+  "lastAccessTimeTrackingPolicy": null,
+  "name": "default",
+  "resourceGroup": "testRG",
+  "restorePolicy": null,
+  "sku": null,
+  "type": "Microsoft.Storage/storageAccounts/blobServices"
+}
+\end{minted}
+\subsection{Configure \texttt{clickhouse-backup} to use Blob storage}
+\label{sec:org8552124}
+\subsubsection{Generate \texttt{clickkhouse-backup} configuration file}
+\label{sec:org2c08657}
+A configuration file for \texttt{clickhouse-backup} was generated with
+\texttt{sudo ./clickhouse-backup default-config > config.yaml}
+
+\begin{minted}[breaklines=true,breakanywhere=true]{yaml}
+general:
+  remote_storage: none
+  max_file_size: 0
+  disable_progress_bar: true
+  backups_to_keep_local: 0
+  backups_to_keep_remote: 0
+  log_level: info
+  allow_empty_backups: false
+  download_concurrency: 1
+  upload_concurrency: 1
+  restore_schema_on_cluster: ""
+  upload_by_part: true
+  download_by_part: true
+clickhouse:
+  username: default
+  password: ""
+  host: localhost
+  port: 9000
+  disk_mapping: {}
+  skip_tables:
+  - system.*
+  - INFORMATION_SCHEMA.*
+  - information_schema.*
+  timeout: 5m
+  freeze_by_part: false
+  secure: false
+  skip_verify: false
+  sync_replicated_tables: false
+  log_sql_queries: true
+  config_dir: /etc/clickhouse-server/
+  restart_command: systemctl restart clickhouse-server
+  ignore_not_exists_error_during_freeze: true
+  tls_key: ""
+  tls_cert: ""
+  tls_ca: ""
+  debug: false
+s3:
+  access_key: ""
+  secret_key: ""
+  bucket: ""
+  endpoint: ""
+  region: us-east-1
+  acl: private
+  assume_role_arn: ""
+  force_path_style: false
+  path: ""
+  disable_ssl: false
+  compression_level: 1
+  compression_format: tar
+  sse: ""
+  disable_cert_verification: false
+  storage_class: STANDARD
+  concurrency: 1
+  part_size: 0
+  max_parts_count: 10000
+  debug: false
+gcs:
+  credentials_file: ""
+  credentials_json: ""
+  bucket: ""
+  path: ""
+  compression_level: 1
+  compression_format: tar
+  debug: false
+  endpoint: ""
+cos:
+  url: ""
+  timeout: 2m
+  secret_id: ""
+  secret_key: ""
+  path: ""
+  compression_format: tar
+  compression_level: 1
+  debug: false
+api:
+  listen: localhost:7171
+  enable_metrics: true
+  enable_pprof: false
+  username: ""
+  password: ""
+  secure: false
+  certificate_file: ""
+  private_key_file: ""
+  create_integration_tables: false
+  allow_parallel: false
+ftp:
+  address: ""
+  timeout: 2m
+  username: ""
+  password: ""
+  tls: false
+  path: ""
+  compression_format: tar
+  compression_level: 1
+  concurrency: 1
+  debug: false
+sftp:
+  address: ""
+  port: 22
+  username: ""
+  password: ""
+  key: ""
+  path: ""
+  compression_format: tar
+  compression_level: 1
+  concurrency: 1
+  debug: false
+azblob:
+  endpoint_suffix: core.windows.net
+  account_name: ""
+  account_key: ""
+  sas: ""
+  use_managed_identity: false
+  container: ""
+  path: ""
+  compression_level: 1
+  compression_format: tar
+  sse_key: ""
+  buffer_size: 0
+  buffer_count: 3
+  max_parts_count: 0
+\end{minted}
+
+\subsubsection{Get necessary config details}
+\label{sec:org287aa3d}
+In order to configure \texttt{clickhouse-backup} for use with Azure Storage Blobs,
+we need an access key and a SAS token.
+
+\begin{enumerate}
+\item Get access key for storage account
+\label{sec:org9615db0}
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage account keys list `
+  --resource-group $RGName `
+  --account-name $SAName
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+[
+  {
+    "creationTime": "2022-04-30T10:14:26.825032+00:00",
+    "keyName": "key1",
+    "permissions": "FULL",
+    "value": "NdbW07WlHBf5zcpMXundwkP88Ie2SO1Ad+84VD8moaUg1ihIeRR7cEdy4FXIgHRvIQwPIMc7eD2q+ASt6EqxWg=="
+  },
+  {
+    "creationTime": "2022-04-30T10:14:26.825032+00:00",
+    "keyName": "key2",
+    "permissions": "FULL",
+    "value": "vs33au0M52gdtKdhqeOiC0vBGRRqO1qUtvQk0Eg2c4TVIFHETmWR7taS8w2ZU5mEAPzYS4ySWBXY+AStcBusiQ=="
+  }
+]
+\end{minted}
+
+\item Get SAS token for container
+\label{sec:org6e529f4}
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage container generate-sas `
+    --account-name $SAName `
+    --name $ContainerName `
+    --permissions acdlrw `
+    --expiry $SASExpDate `
+    --auth-mode login `
+    --as-user
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{text}
+"se=2022-05-05&sp=racwdl&sv=2021-04-10&sr=c&skoid=d404139d-e156-421c-9450-19e9734a8141&sktid=09a10672-822f-4467-a5ba-5bb375967c05&skt=2022-04-30T10%3A32%3A05Z&ske=2022-05-05T00%3A00%3A00Z&sks=b&skv=2021-04-10&sig=CoeOsK63ZSnuqUqn%2Bv2ZgE9/sELwp/Hinxj6abW9qfo%3D"
+\end{minted}
+\end{enumerate}
+
+\subsubsection{Modify configuration file to make it work with Blob storage}
+\label{sec:org513a57f}
+Some \texttt{general} settings were modified:
+\begin{itemize}
+\item \texttt{remote\_storage} was set to \texttt{azblob} (from \texttt{none}).
+\item \texttt{max\_parts\_count} was set to 1 (from 0).
+\item \texttt{disable\_progress\_bar} was set to \texttt{false} (from \texttt{true}).
+\end{itemize}
+
+The necessary \texttt{azblob} details were also filled in.
+
+Modified version of \texttt{config.yaml}:
+\begin{minted}[breaklines=true,breakanywhere=true]{yaml}
+general:
+  remote_storage: azblob
+  max_file_size: 0
+  disable_progress_bar: false
+  backups_to_keep_local: 0
+  backups_to_keep_remote: 0
+  log_level: info
+  allow_empty_backups: false
+  download_concurrency: 1
+  upload_concurrency: 1
+  restore_schema_on_cluster: ""
+  upload_by_part: true
+  download_by_part: true
+clickhouse:
+  username: default
+  password: ""
+  host: localhost
+  port: 9000
+  disk_mapping: {}
+  skip_tables:
+  - system.*
+  - INFORMATION_SCHEMA.*
+  - information_schema.*
+  timeout: 5m
+  freeze_by_part: false
+  secure: false
+  skip_verify: false
+  sync_replicated_tables: false
+  log_sql_queries: true
+  config_dir: /etc/clickhouse-server/
+  restart_command: systemctl restart clickhouse-server
+  ignore_not_exists_error_during_freeze: true
+  tls_key: ""
+  tls_cert: ""
+  tls_ca: ""
+  debug: false
+s3:
+  access_key: ""
+  secret_key: ""
+  bucket: ""
+  endpoint: ""
+  region: us-east-1
+  acl: private
+  assume_role_arn: ""
+  force_path_style: false
+  path: ""
+  disable_ssl: false
+  compression_level: 1
+  compression_format: tar
+  sse: ""
+  disable_cert_verification: false
+  storage_class: STANDARD
+  concurrency: 1
+  part_size: 0
+  max_parts_count: 10000
+  debug: false
+gcs:
+  credentials_file: ""
+  credentials_json: ""
+  bucket: ""
+  path: ""
+  compression_level: 1
+  compression_format: tar
+  debug: false
+  endpoint: ""
+cos:
+  url: ""
+  timeout: 2m
+  secret_id: ""
+  secret_key: ""
+  path: ""
+  compression_format: tar
+  compression_level: 1
+  debug: false
+api:
+  listen: localhost:7171
+  enable_metrics: true
+  enable_pprof: false
+  username: ""
+  password: ""
+  secure: false
+  certificate_file: ""
+  private_key_file: ""
+  create_integration_tables: false
+  allow_parallel: false
+ftp:
+  address: ""
+  timeout: 2m
+  username: ""
+  password: ""
+  tls: false
+  path: ""
+  compression_format: tar
+  compression_level: 1
+  concurrency: 1
+  debug: false
+sftp:
+  address: ""
+  port: 22
+  username: ""
+  password: ""
+  key: ""
+  path: ""
+  compression_format: tar
+  compression_level: 1
+  concurrency: 1
+  debug: false
+azblob:
+  endpoint_suffix: core.windows.net
+  account_name: "chbksa"
+  account_key: "NdbW07WlHBf5zcpMXundwkP88Ie2SO1Ad+84VD8moaUg1ihIeRR7cEdy4FXIgHRvIQwPIMc7eD2q+ASt6EqxWg=="
+  sas: "?sv=2020-08-04&ss=bfqt&srt=c&sp=rwdlacupitfx&se=2022-05-02T14:36:42Z&st=2022-05-02T06:36:42Z&spr=https&sig=ONxr9dN3ayvlq1fwk4b516u%2F9X1ZjVNamV88yeeYksU%3D"
+  use_managed_identity: false
+  container: "chbkcontainer"
+  path: "https://chbksa.blob.core.windows.net/chbkcontainer"
+  compression_level: 1
+  compression_format: tar
+  sse_key: ""
+  buffer_size: 0
+  buffer_count: 3
+  max_parts_count: 1
+\end{minted}
+
+\subsubsection{Perform local backup}
+\label{sec:orgfb658c8}
+Create a local backup:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup create
+
+# 2022/05/02 09:34:00.837899  info SELECT name, engine FROM system.databases WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+# 2022/05/02 09:34:00.844477  info SHOW CREATE DATABASE `default`
+# 2022/05/02 09:34:00.849781  info SELECT count() FROM system.settings WHERE name = 'show_table_uuid_in_table_create_query_if_not_nil'
+# 2022/05/02 09:34:00.861793  info SELECT name FROM system.databases WHERE engine IN ('MySQL','PostgreSQL')
+# 2022/05/02 09:34:00.867246  info
+# 		SELECT
+# 			countIf(name='data_path') is_data_path_present,
+# 			countIf(name='data_paths') is_data_paths_present,
+# 			countIf(name='uuid') is_uuid_present,
+# 			countIf(name='create_table_query') is_create_table_query_present,
+# 			countIf(name='total_bytes') is_total_bytes_present
+# 		FROM system.columns WHERE database='system' AND table='tables'
+#
+# 2022/05/02 09:34:00.881984  info SELECT database, name, engine , data_paths , uuid , create_table_query , coalesce(total_bytes, 0) AS total_bytes   FROM system.tables WHERE is_temporary = 0 SETTINGS show_table_uuid_in_table_create_query_if_not_nil=1
+# 2022/05/02 09:34:00.911828  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/02 09:34:00.920436  info SELECT * FROM system.disks;
+# 2022/05/02 09:34:00.929018  info ALTER TABLE `default`.`cell_towers` FREEZE WITH NAME '671596e8b89e4fc4bc4b69c4992011d4';
+# 2022/05/02 09:34:01.002079  info done                      backup=2022-05-02T09-34-00 operation=create table=default.cell_towers
+# 2022/05/02 09:34:01.002456  info SELECT value FROM `system`.`build_options` where name='VERSION_DESCRIBE'
+# 2022/05/02 09:34:01.008365  info done                      backup=2022-05-02T09-34-00 duration=173ms operation=create
+\end{minted}
+
+List local backups:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list
+
+# 2022/05/02 09:36:01.867327  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/02 09:36:01.871571  info SELECT * FROM system.disks;
+# 2022-05-02T09-34-00   1.07GiB   02/05/2022 09:34:01   local
+\end{minted}
+
+\subsubsection{Perform remote backup}
+\label{sec:orgbcc25d0}
+Create a remote backup:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup create_remote --config config.yaml
+
+# 2022/05/02 09:48:18.613252  info SELECT name, engine FROM system.databases WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+# 2022/05/02 09:48:18.616953  info SHOW CREATE DATABASE `default`
+# 2022/05/02 09:48:18.619861  info SELECT count() FROM system.settings WHERE name = 'show_table_uuid_in_table_create_query_if_not_nil'
+# 2022/05/02 09:48:18.622844  info SELECT name FROM system.databases WHERE engine IN ('MySQL','PostgreSQL')
+# 2022/05/02 09:48:18.625686  info
+# 		SELECT
+# 			countIf(name='data_path') is_data_path_present,
+# 			countIf(name='data_paths') is_data_paths_present,
+# 			countIf(name='uuid') is_uuid_present,
+# 			countIf(name='create_table_query') is_create_table_query_present,
+# 			countIf(name='total_bytes') is_total_bytes_present
+# 		FROM system.columns WHERE database='system' AND table='tables'
+#
+# 2022/05/02 09:48:18.633230  info SELECT database, name, engine , data_paths , uuid , create_table_query , coalesce(total_bytes, 0) AS total_bytes   FROM system.tables WHERE is_temporary = 0 SETTINGS show_table_uuid_in_table_create_query_if_not_nil=1
+# 2022/05/02 09:48:18.642818  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/02 09:48:18.648335  info SELECT * FROM system.disks;
+# 2022/05/02 09:48:18.652902  info ALTER TABLE `default`.`cell_towers` FREEZE WITH NAME '005688e38c3e41dfa2da8d275e7d3c2b';
+# 2022/05/02 09:48:18.736020  info done                      backup=2022-05-02T09-48-18 operation=create table=default.cell_towers
+# 2022/05/02 09:48:18.736333  info SELECT value FROM `system`.`build_options` where name='VERSION_DESCRIBE'
+# 2022/05/02 09:48:18.741265  info done                      backup=2022-05-02T09-48-18 duration=132ms operation=create
+# 2022/05/02 09:48:18.747950  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/02 09:48:18.752206  info SELECT * FROM system.disks;
+# 2022/05/02 09:48:18.758250  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022/05/02 09:48:39.787095  info done                      backup=2022-05-02T09-48-18 duration=20.971s operation=upload size=1.07GiB table=default.cell_towers
+# 2022/05/02 09:48:39.804194  info done                      backup=2022-05-02T09-48-18 duration=21.063s operation=upload size=1.07GiB
+\end{minted}
+
+List remote backups:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list remote --config config.yaml
+
+# 2022/05/02 09:53:50.813272  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022-05-02T09-48-18   1.07GiB   02/05/2022 09:48:39   remote      tar
+\end{minted}
+
+The backup was also visible in the Azure Portal.
+
+\subsection{Set up Azure Backup}
+\label{sec:org6963b1d}
+Azure Backup was set up to back up the ClickHouse VM.
+Commands are mostly based on instructions from the Azure Documentation \cite{v-amallick_quickstart_nodate}
+% [v-amallickQuickstartBackVM]
+
+\subsubsection{Create a Recovery Services vault}
+\label{sec:org05625d6}
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup vault create --location $location --name $RSVName --resource-group $RGName
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "etag": "W/\"datetime'2022-05-02T12%3A34%3A13.452294Z'\"",
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV",
+  "identity": null,
+  "location": "eastus",
+  "name": "myRSV",
+  "properties": {
+    "encryption": null,
+    "privateEndpointConnections": null,
+    "privateEndpointStateForBackup": "None",
+    "privateEndpointStateForSiteRecovery": "None",
+    "provisioningState": "Succeeded",
+    "upgradeDetails": null
+  },
+  "resourceGroup": "testRG",
+  "sku": {
+    "name": "Standard",
+    "tier": null
+  },
+  "systemData": null,
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults"
+}
+\end{minted}
+
+\subsubsection{Disable geo-redundancy}
+\label{sec:orgf8d56a4}
+To save on costs, we disabled geo-redundant storage.
+
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup vault backup-properties set --backup-storage-redundancy LocallyRedundant --name $RSVName --resource-group $RGName --subscription $subscription
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupstorageconfig/vaultstorageconfig",
+  "location": null,
+  "name": "vaultstorageconfig",
+  "properties": {
+    "crossRegionRestoreFlag": false,
+    "dedupState": "Disabled",
+    "storageModelType": "LocallyRedundant",
+    "storageType": "LocallyRedundant",
+    "storageTypeState": "Unlocked",
+    "xcoolState": "Disabled"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupstorageconfig"
+}
+\end{minted}
+\subsubsection{Decide which backup policy to use}
+\label{sec:orgbd40151}
+We determined that the default policy is sufficient for our experiments.
+The policy is listed below.
+
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup policy show -g $RGName -v $RSVName -n DefaultPolicy
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupPolicies/DefaultPolicy",
+  "location": null,
+  "name": "DefaultPolicy",
+  "properties": {
+    "backupManagementType": "AzureIaasVM",
+    "instantRpDetails": {
+      "azureBackupRgNamePrefix": null,
+      "azureBackupRgNameSuffix": null
+    },
+    "instantRpRetentionRangeInDays": 2,
+    "policyType": null,
+    "protectedItemsCount": 0,
+    "resourceGuardOperationRequests": null,
+    "retentionPolicy": {
+      "dailySchedule": {
+        "retentionDuration": {
+          "count": 30,
+          "durationType": "Days"
+        },
+        "retentionTimes": [
+          "2022-05-02T20:00:00+00:00"
+        ]
+      },
+      "monthlySchedule": null,
+      "retentionPolicyType": "LongTermRetentionPolicy",
+      "weeklySchedule": null,
+      "yearlySchedule": null
+    },
+    "schedulePolicy": {
+      "hourlySchedule": null,
+      "schedulePolicyType": "SimpleSchedulePolicy",
+      "scheduleRunDays": null,
+      "scheduleRunFrequency": "Daily",
+      "scheduleRunTimes": [
+        "2022-05-02T20:00:00+00:00"
+      ],
+      "scheduleWeeklyFrequency": 0
+    },
+    "timeZone": "UTC"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupPolicies"
+}
+\end{minted}
+\subsubsection{Enable backup for the VM}
+\label{sec:org3803369}
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup protection enable-for-vm `
+ --resource-group $RGName `
+ --vault-name $RSVName `
+ --vm $CHName `
+ --policy-name $PolicyName
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupJobs/a09a2633-ec57-43c5-b121-b48d19cd936a",
+  "location": null,
+  "name": "a09a2633-ec57-43c5-b121-b48d19cd936a",
+  "properties": {
+    "actionsInfo": null,
+    "activityId": "62452fde-ca14-11ec-a1e3-0a580af43d64",
+    "backupManagementType": "AzureIaasVM",
+    "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+    "duration": "0:00:30.954373",
+    "endTime": "2022-05-02T12:36:20.005999+00:00",
+    "entityFriendlyName": "clickhousevm",
+    "errorDetails": null,
+    "extendedInfo": {
+      "dynamicErrorMessage": null,
+      "estimatedRemainingDuration": null,
+      "internalPropertyBag": null,
+      "progressPercentage": null,
+      "propertyBag": {
+        "Policy Name": "DefaultPolicy",
+        "VM Name": "clickhousevm"
+      },
+      "tasksList": []
+    },
+    "isUserTriggered": null,
+    "jobType": "AzureIaaSVMJob",
+    "operation": "ConfigureBackup",
+    "startTime": "2022-05-02T12:35:49.051626+00:00",
+    "status": "Completed",
+    "virtualMachineVersion": "Compute"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupJobs"
+}
+\end{minted}
+
+\subsubsection{Make a backup of the ClickHouse VM}
+\label{sec:org9e0d508}
+In order to trigger a backup job instantly, we ran the following:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup protection backup-now `
+    --resource-group $RGName `
+    --vault-name $RSVName `
+    --container-name $CHName `
+    --item-name $CHName `
+    --backup-management-type AzureIaaSVM `
+    --retain-until 06-05-2022
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupJobs/d52437c1-3ad2-4312-98a7-a75b4eea6e7e",
+  "location": null,
+  "name": "d52437c1-3ad2-4312-98a7-a75b4eea6e7e",
+  "properties": {
+    "actionsInfo": [
+      "1"
+    ],
+    "activityId": "950770e4-ca14-11ec-a745-0a580af43d64",
+    "backupManagementType": "AzureIaasVM",
+    "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+    "duration": "0:00:01.836772",
+    "endTime": null,
+    "entityFriendlyName": "clickhousevm",
+    "errorDetails": null,
+    "extendedInfo": {
+      "dynamicErrorMessage": null,
+      "estimatedRemainingDuration": null,
+      "internalPropertyBag": {
+        "IsInstantRpJob": "True"
+      },
+      "progressPercentage": null,
+      "propertyBag": {
+        "Recovery Point Expiry Time in UTC": "5/6/2022 12:00:00 AM",
+        "VM Name": "clickhousevm"
+      },
+      "tasksList": [
+        {
+          "duration": "0:00:00",
+          "endTime": null,
+          "instanceId": null,
+          "progressPercentage": null,
+          "startTime": null,
+          "status": "InProgress",
+          "taskExecutionDetails": null,
+          "taskId": "Take Snapshot"
+        },
+        {
+          "duration": "0:00:00",
+          "endTime": null,
+          "instanceId": null,
+          "progressPercentage": null,
+          "startTime": null,
+          "status": "NotStarted",
+          "taskExecutionDetails": null,
+          "taskId": "Transfer data to vault"
+        }
+      ]
+    },
+    "isUserTriggered": null,
+    "jobType": "AzureIaaSVMJob",
+    "operation": "Backup",
+    "startTime": "2022-05-02T12:37:10.978974+00:00",
+    "status": "InProgress",
+    "virtualMachineVersion": "Compute"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupJobs"
+}
+\end{minted}

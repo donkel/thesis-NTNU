@@ -1,0 +1,22 @@
+\subsection{Research question 1}
+\paragraph{What are some  best practices for securing backups against ransomware and other malware, and how can they be implemented in Azure?}
+
+Protecting backups from ransomware is different in the cloud age, compared to the time of physical infrastructure, but the principles are much the same. It is important to protect against unauthorized access to the backups, and against modifications or deletion. The CIA triad was described in section \ref{CIA}, and the principle holds up for securing backups as well. 
+
+Protecting against unauthorized access is important to ensure both the confidentiality, and integrity of the backups. This can be done outside of cloud platforms with physical barriers separating the servers from unwanted persons. Use of passwords or other access controls is also standard practice. In the cloud age however, everything is available over the internet, and the security controls must address this. 
+
+In Azure this is implemented with Role based access control (see \ref{theory:RBAC} for details.) Through use of set permissions and roles for all users the system can barr unauthorized access to specified resources or resource groups. This means that only a very limited set of people can access the backup data, and even fewer perform modifications to it. 
+
+Backups must also be protected from changes to ensure the integrity of the data. It is essential when a backup is restored to a production system, that the data can be trusted to be the same as when it was backed up. In Azure Backup there is no way to change prior backups. When a backup job runs it is allowed to write the backup into storage, but beyond that job that data is read-only. This ensures that an attacker can not encrypt backups directly, or tamper with them by any other means than deleting them. 
+
+Naturally it follows that backups must also be available to authorized personnel in a timely manner. This means that they for example should not be able to be deleted. In Azure Backups Recovery Services vaults, this can be ensured with several features. Soft delete prevents all backup data from being permanently deleted within 14 days of attempting to delete it. Multi-user authorization prevents data from deletion (and soft delete from getting disabled) without the authorization from another administrator account beyond the backup administrator. 
+
+Azure also supports even stronger control over certain resources, through the use of Multi-User authorization. This namely Recovery Services vaults, which allows 
+
+Best practices for backups
+ -> Azure
+
+
+
+\subsection{Research question 2}
+\paragraph{Are Azure's security mechanisms effective against a modern ransomware attack?}

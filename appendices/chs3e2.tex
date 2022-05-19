@@ -1,0 +1,489 @@
+\section{Delete Recovery Services vault}
+\label{app:chs3e2}
+Microsoft provides a script to delete an entire Recovery Services vault.
+The script turns off soft delete and deletes all backup items.
+Backup items in a soft deleted state are first undeleted and then deleted again.
+In this experiment, we try to run the script, in order to delete the RSV.
+
+\subsection{Make a backup in the RSV}
+\label{sec:org2663d5e}
+Since our backups were deleted in the previous experiment,
+backup protection for the ClickHouse VM had to be re-enabled.
+
+Enabling backup protection for the VM:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup protection enable-for-vm `
+ --resource-group $RGName `
+ --vault-name $RSVName `
+ --vm $CHName `
+ --policy-name $PolicyName
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupJobs/f1c62078-9756-4407-b97f-8dad9124d6e3",
+  "location": null,
+  "name": "f1c62078-9756-4407-b97f-8dad9124d6e3",
+  "properties": {
+    "actionsInfo": null,
+    "activityId": "c7b7513a-cece-11ec-a490-0a580af4687d",
+    "backupManagementType": "AzureIaasVM",
+    "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+    "duration": "0:00:31.147828",
+    "endTime": "2022-05-08T13:00:51.346337+00:00",
+    "entityFriendlyName": "clickhousevm",
+    "errorDetails": null,
+    "extendedInfo": {
+      "dynamicErrorMessage": null,
+      "estimatedRemainingDuration": null,
+      "internalPropertyBag": null,
+      "progressPercentage": null,
+      "propertyBag": {
+        "Policy Name": "DefaultPolicy",
+        "VM Name": "clickhousevm"
+      },
+      "tasksList": []
+    },
+    "isUserTriggered": null,
+    "jobType": "AzureIaaSVMJob",
+    "operation": "ConfigureBackup",
+    "startTime": "2022-05-08T13:00:20.198509+00:00",
+    "status": "Completed",
+    "virtualMachineVersion": "Compute"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupJobs"
+}
+\end{minted}
+
+Trigger a backup job immediately:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup protection backup-now `
+    --resource-group $RGName `
+    --vault-name $RSVName `
+    --container-name $CHName `
+    --item-name $CHName `
+    --backup-management-type AzureIaaSVM `
+    --retain-until 12-05-2022
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupJobs/5dcacb3b-0c69-4849-a239-5b5bf935cb08",
+  "location": null,
+  "name": "5dcacb3b-0c69-4849-a239-5b5bf935cb08",
+  "properties": {
+    "actionsInfo": [
+      "1"
+    ],
+    "activityId": "ee140e7c-cece-11ec-aa04-0a580af4687d",
+    "backupManagementType": "AzureIaasVM",
+    "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+    "duration": "0:00:01.551140",
+    "endTime": null,
+    "entityFriendlyName": "clickhousevm",
+    "errorDetails": null,
+    "extendedInfo": {
+      "dynamicErrorMessage": null,
+      "estimatedRemainingDuration": null,
+      "internalPropertyBag": {
+        "IsInstantRpJob": "True"
+      },
+      "progressPercentage": null,
+      "propertyBag": {
+        "Recovery Point Expiry Time in UTC": "5/12/2022 12:00:00 AM",
+        "VM Name": "clickhousevm"
+      },
+      "tasksList": [
+        {
+          "duration": "0:00:00",
+          "endTime": null,
+          "instanceId": null,
+          "progressPercentage": null,
+          "startTime": null,
+          "status": "InProgress",
+          "taskExecutionDetails": null,
+          "taskId": "Take Snapshot"
+        },
+        {
+          "duration": "0:00:00",
+          "endTime": null,
+          "instanceId": null,
+          "progressPercentage": null,
+          "startTime": null,
+          "status": "NotStarted",
+          "taskExecutionDetails": null,
+          "taskId": "Transfer data to vault"
+        }
+      ]
+    },
+    "isUserTriggered": null,
+    "jobType": "AzureIaaSVMJob",
+    "operation": "Backup",
+    "startTime": "2022-05-08T13:01:11.106429+00:00",
+    "status": "InProgress",
+    "virtualMachineVersion": "Compute"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupJobs"
+}
+\end{minted}
+
+List backups
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup item list --resource-group $RGName --vault-name $RSVName
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+[
+  {
+    "eTag": null,
+    "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupFabrics/Azure/protectionContainers/IaasVMContainer;iaasvmcontainerv2;testrg;clickhousevm/protectedItems/VM;iaasvmcontainerv2;testrg;clickhousevm",
+    "location": null,
+    "name": "VM;iaasvmcontainerv2;testrg;clickhousevm",
+    "properties": {
+      "backupManagementType": "AzureIaasVM",
+      "backupSetName": null,
+      "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+      "createMode": null,
+      "deferredDeleteTimeInUtc": null,
+      "deferredDeleteTimeRemaining": null,
+      "extendedInfo": null,
+      "extendedProperties": null,
+      "friendlyName": "clickhouseVM",
+      "healthDetails": null,
+      "healthStatus": "Passed",
+      "isArchiveEnabled": false,
+      "isDeferredDeleteScheduleUpcoming": null,
+      "isRehydrate": null,
+      "isScheduledForDeferredDelete": null,
+      "kpisHealths": {},
+      "lastBackupStatus": "",
+      "lastBackupTime": "2001-01-01T00:00:00+00:00",
+      "lastRecoveryPoint": "2022-05-08T13:01:15.411726+00:00",
+      "policyId": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupPolicies/DefaultPolicy",
+      "policyName": "DefaultPolicy",
+      "protectedItemDataId": "123146169525886",
+      "protectedItemType": "Microsoft.Compute/virtualMachines",
+      "protectionState": "Protected",
+      "protectionStatus": "Healthy",
+      "resourceGuardOperationRequests": null,
+      "sourceResourceId": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Compute/virtualMachines/clickhouseVM",
+      "virtualMachineId": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Compute/virtualMachines/clickhouseVM",
+      "workloadType": "VM"
+    },
+    "resourceGroup": "testRG",
+    "tags": null,
+    "type": "Microsoft.RecoveryServices/vaults/backupFabrics/protectionContainers/protectedItems"
+  }
+]
+\end{minted}
+
+\subsection{Download script}
+\label{sec:org3312e3f}
+The following script was copied from the Microsoft documentation and
+saved as \texttt{delete-rsv.ps1} in the home directory in the Azure Cloud Shell \cite{v-amallick_script_nodate}.
+%[v-amallickScriptSampleDelete].
+The four variables at the start of the script were modified to work with our test environment.
+In addition, the first line (\texttt{Connect-AzAccount}) was commented out,
+because the script was run directly in the Cloud Shell,
+and thus did not need to be authenticated.
+
+The script was run by executing \texttt{./delete-rsv.ps1}.
+
+Script to delete RSV:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Connect-AzAccount
+
+$VaultName = $RSVName #enter vault name
+$Subscription = "Azure for Students" #enter Subscription name
+$ResourceGroup = $RGName #enter Resource group name
+$SubscriptionId = $subscription #enter Subscription ID
+
+Select-AzSubscription $Subscription
+$VaultToDelete = Get-AzRecoveryServicesVault -Name $VaultName -ResourceGroupName $ResourceGroup
+Set-AzRecoveryServicesAsrVaultContext -Vault $VaultToDelete
+
+Set-AzRecoveryServicesVaultProperty -Vault $VaultToDelete.ID -SoftDeleteFeatureState Disable #disable soft delete
+Write-Host "Soft delete disabled for the vault" $VaultName
+$containerSoftDelete = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureVM -WorkloadType AzureVM -VaultId $VaultToDelete.ID | Where-Object {$_.DeleteState -eq "ToBeDeleted"} #fetch backup items in soft delete state
+foreach ($softitem in $containerSoftDelete)
+{
+    Undo-AzRecoveryServicesBackupItemDeletion -Item $softitem -VaultId $VaultToDelete.ID -Force #undelete items in soft delete state
+}
+#Invoking API to disable enhanced security
+$azProfile = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile
+$profileClient = New-Object -TypeName Microsoft.Azure.Commands.ResourceManager.Common.RMProfileClient -ArgumentList ($azProfile)
+$accesstoken = Get-AzAccessToken
+$token = $accesstoken.Token
+$authHeader = @{
+    'Content-Type'='application/json'
+    'Authorization'='Bearer ' + $token
+}
+$body = @{properties=@{enhancedSecurityState= "Disabled"}}
+$restUri = 'https://management.azure.com/subscriptions/'+$SubscriptionId+'/resourcegroups/'+$ResourceGroup+'/providers/Microsoft.RecoveryServices/vaults/'+$VaultName+'/backupconfig/vaultconfig?api-version=2019-05-13' #Replace "management.azure.com" with "management.usgovcloudapi.net" if your subscription is in USGov.
+$response = Invoke-RestMethod -Uri $restUri -Headers $authHeader -Body ($body | ConvertTo-JSON -Depth 9) -Method PATCH
+
+
+#Fetch all protected items and servers
+$backupItemsVM = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureVM -WorkloadType AzureVM -VaultId $VaultToDelete.ID
+$backupItemsSQL = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureWorkload -WorkloadType MSSQL -VaultId $VaultToDelete.ID
+$backupItemsAFS = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureStorage -WorkloadType AzureFiles -VaultId $VaultToDelete.ID
+$backupItemsSAP = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureWorkload -WorkloadType SAPHanaDatabase -VaultId $VaultToDelete.ID
+$backupContainersSQL = Get-AzRecoveryServicesBackupContainer -ContainerType AzureVMAppContainer -Status Registered -VaultId $VaultToDelete.ID | Where-Object {$_.ExtendedInfo.WorkloadType -eq "SQL"}
+$protectableItemsSQL = Get-AzRecoveryServicesBackupProtectableItem -WorkloadType MSSQL -VaultId $VaultToDelete.ID | Where-Object {$_.IsAutoProtected -eq $true}
+$backupContainersSAP = Get-AzRecoveryServicesBackupContainer -ContainerType AzureVMAppContainer -Status Registered -VaultId $VaultToDelete.ID | Where-Object {$_.ExtendedInfo.WorkloadType -eq "SAPHana"}
+$StorageAccounts = Get-AzRecoveryServicesBackupContainer -ContainerType AzureStorage -Status Registered -VaultId $VaultToDelete.ID
+$backupServersMARS = Get-AzRecoveryServicesBackupContainer -ContainerType "Windows" -BackupManagementType MAB -VaultId $VaultToDelete.ID
+$backupServersMABS = Get-AzRecoveryServicesBackupManagementServer -VaultId $VaultToDelete.ID| Where-Object { $_.BackupManagementType -eq "AzureBackupServer" }
+$backupServersDPM = Get-AzRecoveryServicesBackupManagementServer -VaultId $VaultToDelete.ID | Where-Object { $_.BackupManagementType-eq "SCDPM" }
+$pvtendpoints = Get-AzPrivateEndpointConnection -PrivateLinkResourceId $VaultToDelete.ID
+
+foreach($item in $backupItemsVM)
+    {
+        Disable-AzRecoveryServicesBackupProtection -Item $item -VaultId $VaultToDelete.ID -RemoveRecoveryPoints -Force #stop backup and delete Azure VM backup items
+    }
+Write-Host "Disabled and deleted Azure VM backup items"
+
+foreach($item in $backupItemsSQL)
+    {
+        Disable-AzRecoveryServicesBackupProtection -Item $item -VaultId $VaultToDelete.ID -RemoveRecoveryPoints -Force #stop backup and delete SQL Server in Azure VM backup items
+    }
+Write-Host "Disabled and deleted SQL Server backup items"
+
+foreach($item in $protectableItems)
+    {
+        Disable-AzRecoveryServicesBackupAutoProtection -BackupManagementType AzureWorkload -WorkloadType MSSQL -InputItem $item -VaultId $VaultToDelete.ID #disable auto-protection for SQL
+    }
+Write-Host "Disabled auto-protection and deleted SQL protectable items"
+
+foreach($item in $backupContainersSQL)
+    {
+        Unregister-AzRecoveryServicesBackupContainer -Container $item -Force -VaultId $VaultToDelete.ID #unregister SQL Server in Azure VM protected server
+    }
+Write-Host "Deleted SQL Servers in Azure VM containers"
+
+foreach($item in $backupItemsSAP)
+    {
+        Disable-AzRecoveryServicesBackupProtection -Item $item -VaultId $VaultToDelete.ID -RemoveRecoveryPoints -Force #stop backup and delete SAP HANA in Azure VM backup items
+    }
+Write-Host "Disabled and deleted SAP HANA backup items"
+
+foreach($item in $backupContainersSAP)
+    {
+        Unregister-AzRecoveryServicesBackupContainer -Container $item -Force -VaultId $VaultToDelete.ID #unregister SAP HANA in Azure VM protected server
+    }
+Write-Host "Deleted SAP HANA in Azure VM containers"
+
+foreach($item in $backupItemsAFS)
+    {
+        Disable-AzRecoveryServicesBackupProtection -Item $item -VaultId $VaultToDelete.ID -RemoveRecoveryPoints -Force #stop backup and delete Azure File Shares backup items
+    }
+Write-Host "Disabled and deleted Azure File Share backups"
+
+foreach($item in $StorageAccounts)
+    {
+        Unregister-AzRecoveryServicesBackupContainer -container $item -Force -VaultId $VaultToDelete.ID #unregister storage accounts
+    }
+Write-Host "Unregistered Storage Accounts"
+
+foreach($item in $backupServersMARS)
+    {
+    	Unregister-AzRecoveryServicesBackupContainer -Container $item -Force -VaultId $VaultToDelete.ID #unregister MARS servers and delete corresponding backup items
+    }
+Write-Host "Deleted MARS Servers"
+
+foreach($item in $backupServersMABS)
+    {
+	    Unregister-AzRecoveryServicesBackupManagementServer -AzureRmBackupManagementServer $item -VaultId $VaultToDelete.ID #unregister MABS servers and delete corresponding backup items
+    }
+Write-Host "Deleted MAB Servers"
+
+foreach($item in $backupServersDPM)
+    {
+	    Unregister-AzRecoveryServicesBackupManagementServer -AzureRmBackupManagementServer $item -VaultId $VaultToDelete.ID #unregister DPM servers and delete corresponding backup items
+    }
+Write-Host "Deleted DPM Servers"
+
+#Deletion of ASR Items
+
+$fabricObjects = Get-AzRecoveryServicesAsrFabric
+if ($null -ne $fabricObjects) {
+	# First DisableDR all VMs.
+	foreach ($fabricObject in $fabricObjects) {
+		$containerObjects = Get-AzRecoveryServicesAsrProtectionContainer -Fabric $fabricObject
+		foreach ($containerObject in $containerObjects) {
+			$protectedItems = Get-AzRecoveryServicesAsrReplicationProtectedItem -ProtectionContainer $containerObject
+			# DisableDR all protected items
+			foreach ($protectedItem in $protectedItems) {
+				Write-Host "Triggering DisableDR(Purge) for item:" $protectedItem.Name
+				Remove-AzRecoveryServicesAsrReplicationProtectedItem -InputObject $protectedItem -Force
+				Write-Host "DisableDR(Purge) completed"
+			}
+
+			$containerMappings = Get-AzRecoveryServicesAsrProtectionContainerMapping `
+				-ProtectionContainer $containerObject
+			# Remove all Container Mappings
+			foreach ($containerMapping in $containerMappings) {
+				Write-Host "Triggering Remove Container Mapping: " $containerMapping.Name
+				Remove-AzRecoveryServicesAsrProtectionContainerMapping -ProtectionContainerMapping $containerMapping -Force
+				Write-Host "Removed Container Mapping."
+			}
+		}
+		$NetworkObjects = Get-AzRecoveryServicesAsrNetwork -Fabric $fabricObject
+		foreach ($networkObject in $NetworkObjects)
+		{
+			#Get the PrimaryNetwork
+			$PrimaryNetwork = Get-AzRecoveryServicesAsrNetwork -Fabric $fabricObject -FriendlyName $networkObject
+			$NetworkMappings = Get-AzRecoveryServicesAsrNetworkMapping -Network $PrimaryNetwork
+			foreach ($networkMappingObject in $NetworkMappings)
+			{
+				#Get the Neetwork Mappings
+				$NetworkMapping = Get-AzRecoveryServicesAsrNetworkMapping -Name $networkMappingObject.Name -Network $PrimaryNetwork
+				Remove-AzRecoveryServicesAsrNetworkMapping -InputObject $NetworkMapping
+			}
+		}
+		# Remove Fabric
+		Write-Host "Triggering Remove Fabric:" $fabricObject.FriendlyName
+		Remove-AzRecoveryServicesAsrFabric -InputObject $fabricObject -Force
+		Write-Host "Removed Fabric."
+	}
+}
+
+foreach($item in $pvtendpoints)
+	{
+		$penamesplit = $item.Name.Split(".")
+		$pename = $penamesplit[0]
+		Remove-AzPrivateEndpointConnection -ResourceId $item.PrivateEndpoint.Id -Force #remove private endpoint connections
+		Remove-AzPrivateEndpoint -Name $pename -ResourceGroupName $ResourceGroup -Force #remove private endpoints
+	}
+Write-Host "Removed Private Endpoints"
+
+#Recheck ASR items in vault
+$fabricCount = 0
+$ASRProtectedItems = 0
+$ASRPolicyMappings = 0
+$fabricObjects = Get-AzRecoveryServicesAsrFabric
+if ($null -ne $fabricObjects) {
+	foreach ($fabricObject in $fabricObjects) {
+		$containerObjects = Get-AzRecoveryServicesAsrProtectionContainer -Fabric $fabricObject
+		foreach ($containerObject in $containerObjects) {
+			$protectedItems = Get-AzRecoveryServicesAsrReplicationProtectedItem -ProtectionContainer $containerObject
+			foreach ($protectedItem in $protectedItems) {
+				$ASRProtectedItems++
+			}
+			$containerMappings = Get-AzRecoveryServicesAsrProtectionContainerMapping `
+				-ProtectionContainer $containerObject
+			foreach ($containerMapping in $containerMappings) {
+				$ASRPolicyMappings++
+			}
+		}
+		$fabricCount++
+	}
+}
+#Recheck presence of backup items in vault
+$backupItemsVMFin = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureVM -WorkloadType AzureVM -VaultId $VaultToDelete.ID
+$backupItemsSQLFin = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureWorkload -WorkloadType MSSQL -VaultId $VaultToDelete.ID
+$backupContainersSQLFin = Get-AzRecoveryServicesBackupContainer -ContainerType AzureVMAppContainer -Status Registered -VaultId $VaultToDelete.ID | Where-Object {$_.ExtendedInfo.WorkloadType -eq "SQL"}
+$protectableItemsSQLFin = Get-AzRecoveryServicesBackupProtectableItem -WorkloadType MSSQL -VaultId $VaultToDelete.ID | Where-Object {$_.IsAutoProtected -eq $true}
+$backupItemsSAPFin = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureWorkload -WorkloadType SAPHanaDatabase -VaultId $VaultToDelete.ID
+$backupContainersSAPFin = Get-AzRecoveryServicesBackupContainer -ContainerType AzureVMAppContainer -Status Registered -VaultId $VaultToDelete.ID | Where-Object {$_.ExtendedInfo.WorkloadType -eq "SAPHana"}
+$backupItemsAFSFin = Get-AzRecoveryServicesBackupItem -BackupManagementType AzureStorage -WorkloadType AzureFiles -VaultId $VaultToDelete.ID
+$StorageAccountsFin = Get-AzRecoveryServicesBackupContainer -ContainerType AzureStorage -Status Registered -VaultId $VaultToDelete.ID
+$backupServersMARSFin = Get-AzRecoveryServicesBackupContainer -ContainerType "Windows" -BackupManagementType MAB -VaultId $VaultToDelete.ID
+$backupServersMABSFin = Get-AzRecoveryServicesBackupManagementServer -VaultId $VaultToDelete.ID| Where-Object { $_.BackupManagementType -eq "AzureBackupServer" }
+$backupServersDPMFin = Get-AzRecoveryServicesBackupManagementServer -VaultId $VaultToDelete.ID | Where-Object { $_.BackupManagementType-eq "SCDPM" }
+$pvtendpointsFin = Get-AzPrivateEndpointConnection -PrivateLinkResourceId $VaultToDelete.ID
+Write-Host "Number of backup items left in the vault and which need to be deleted:" $backupItemsVMFin.count "Azure VMs" $backupItemsSQLFin.count "SQL Server Backup Items" $backupContainersSQLFin.count "SQL Server Backup Containers" $protectableItemsSQLFin.count "SQL Server Instances" $backupItemsSAPFin.count "SAP HANA backup items" $backupContainersSAPFin.count "SAP HANA Backup Containers" $backupItemsAFSFin.count "Azure File Shares" $StorageAccountsFin.count "Storage Accounts" $backupServersMARSFin.count "MARS Servers" $backupServersMABSFin.count "MAB Servers" $backupServersDPMFin.count "DPM Servers" $pvtendpointsFin.count "Private endpoints"
+Write-Host "Number of ASR items left in the vault and which need to be deleted:" $ASRProtectedItems "ASR protected items" $ASRPolicyMappings "ASR policy mappings" $fabricCount "ASR Fabrics" $pvtendpointsFin.count "Private endpoints. Warning: This script will only remove the replication configuration from Azure Site Recovery and not from the source. Please cleanup the source manually. Visit https://go.microsoft.com/fwlink/?linkid=2182781 to learn more"
+Remove-AzRecoveryServicesVault -Vault $VaultToDelete
+#Finish
+\end{minted}
+
+Running the script:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+./delete-rsv.ps1
+# Name                                     Account                                            SubscriptionName                                   Environment                                        TenantId
+# ----                                     -------                                            ----------------                                   -----------                                        --------
+# Azure for Students (4b48eb85-91f3-4902-… MSI@50342                                          Azure for Students                                 AzureCloud                                         09a10672-822f-4467-a5ba-5bb375967c05
+#
+# ResourceName      : myRSV
+# ResourceGroupName : testRG
+# ResourceNamespace : Microsoft.RecoveryServices
+# ResouceType       : vaults
+#
+#
+# StorageModelType                 :
+# StorageType                      :
+# StorageTypeState                 :
+# EnhancedSecurityState            : Enabled
+# SoftDeleteFeatureState           : Disabled
+# ResourceGuardOperationRequests   :
+# IsSoftDeleteFeatureStateEditable : True
+#
+# Soft delete disabled for the vault myRSV
+# Invoke-RestMethod: /home/torstein/delete-rsv.ps1:30
+# Line |
+#   30 |  $response = Invoke-RestMethod -Uri $restUri -Headers $authHeader -Bod …
+#      |              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#      | {"error":{"code":"InvalidSubscriptionId","message":"The provided subscription identifier 'Azure for Students' is malformed or invalid."}}
+#
+#
+# DynamicErrorMessage  :
+# Properties           : {[VM Name, clickhouseVM], [Number of Recovery Points, 1]}
+# SubTasks             : {}
+# VmVersion            : Compute
+# IsCancellable        : False
+# IsRetriable          : False
+# ErrorDetails         :
+# ActivityId           : 7640f777-a528-43a7-b618-fea2ad3b0a52
+# JobId                : 88685b46-5b5f-477a-a755-9632751dac21
+# Operation            : DeleteBackupData
+# Status               : Completed
+# WorkloadName         : clickhouseVM
+# StartTime            : 5/8/2022 1:22:27 PM
+# EndTime              : 5/8/2022 1:24:19 PM
+# Duration             : 00:01:51.8479521
+# BackupManagementType : AzureVM
+#
+# Disabled and deleted Azure VM backup items
+# Disabled and deleted SQL Server backup items
+# Disabled auto-protection and deleted SQL protectable items
+# Deleted SQL Servers in Azure VM containers
+# Disabled and deleted SAP HANA backup items
+# Deleted SAP HANA in Azure VM containers
+# Disabled and deleted Azure File Share backups
+# Unregistered Storage Accounts
+# Deleted MARS Servers
+# Deleted MAB Servers
+# Deleted DPM Servers
+# Removed Private Endpoints
+# Number of backup items left in the vault and which need to be deleted: 0 Azure VMs 0 SQL Server Backup Items 0 SQL Server Backup Containers 0 SQL Server Instances 0 SAP HANA backup items 0 SAP HANA Backup Containers 0 Azure File Shares 0 Storage Accounts 0 MARS Servers 0 MAB Servers 0 DPM Servers 0 Private endpoints
+# Number of ASR items left in the vault and which need to be deleted: 0 ASR protected items 0 ASR policy mappings 0 ASR Fabrics 0 Private endpoints. Warning: This script will only remove the replication configuration from Azure Site Recovery and not from the source. Please cleanup the source manually. Visit https://go.microsoft.com/fwlink/?linkid=2182781 to learn more
+#
+# Response : Vault has been deleted
+\end{minted}
+
+It seems one of the lines in the script failed.
+This does not appear to have affected the deletion of the vault, though.
+
+A ``Soft Delete disabled for Vault'' alert was fired by Azure Monitor.
+
+\subsection{Verify deletion}
+\label{sec:orgcd06d3c}
+Trying to list backup items:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup item list --resource-group $RGName --vault-name $RSVName
+# (ResourceNotFound) The Resource 'Microsoft.RecoveryServices/vaults/myRSV' under resource group 'testRG' was not found. For more details please go to https://aka.ms/ARMResourceNotFoundFix
+# Code: ResourceNotFound
+# Message: The Resource 'Microsoft.RecoveryServices/vaults/myRSV' under resource group 'testRG' was not found. For more details please go to https://aka.ms/ARMResourceNotFoundFix
+\end{minted}
+
+The vault is completely gone!

@@ -1,0 +1,88 @@
+\section{Restore from a backup vault}
+\label{app:pg-restore1}
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+   "authorization": {
+       "action": "Microsoft.DataProtection/backupVaults/backupInstances/restore/action",
+       "scope": "/subscriptions/3d440288-2774-4e29-b3d7-0b9efe86bba7/resourceGroups/bachelor119/providers/Microsoft.DataProtection/backupVaults/bachelor119-performance-backup/backupInstances/bachelor119-performance-postgres-748e4aca-e53b-4e15-9fe2-665e67d8c03e"
+   },
+   "caller": "omerj@ntnu.no",
+   "channels": "Operation",
+   "claims": {
+       "aud": "https://management.core.windows.net/",
+       "iss": "https://sts.windows.net/09a10672-822f-4467-a5ba-5bb375967c05/",
+       "iat": "1651736576",
+       "nbf": "1651736576",
+       "exp": "1651741076",
+       "http://schemas.microsoft.com/claims/authnclassreference": "1",
+       "aio": "AVQAq/8TAAAABL3Z7ULGAW1yexY77bzlzAyhUVgZSwf0iL4jELLfgqEExxjWaqv/V018J4GhfqQcZV9PkxbGEDAvPyhTqxWWhMQVZu9S5OlQB4Ev2uHhnTE=",
+       "http://schemas.microsoft.com/claims/authnmethodsreferences": "pwd,mfa",
+       "appid": "c44b4083-3bb0-49c1-b47d-974e53cbdf3c",
+       "appidacr": "2",
+       "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname": "Jonuzi",
+       "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname": "Omer",
+       "groups": "8d15c301-2022-4dc2-9550-f36dbdffee7c,61846c99-b2ae-4898-a10c-2ddd7b4a013f,091bd972-9447-4208-b3cc-8a1959add436,0107c21a-8a63-4b21-87a0-86a12547fd12,94fefe97-5b83-47a6-a829-01b4add29fe3,5f73363b-e2f9-4001-a71d-b6230f44a293,3ef57554-d71c-41a1-a080-701c2320082c,e1adf917-cdb3-42cc-8425-79ffe844a86d,498ce0ed-e83d-413e-b529-bde0346ccdf1,a7f6818e-774d-4e09-994f-77fbe6ff7925,aad00940-a490-41c1-8a0c-9b0be5e7a390,be17024f-57a2-4729-a575-75d7d7b63e14,c497c5c3-4e26-4e2a-8a12-10e0d43288a1,0e414658-efef-4804-a1c4-8a7f668a9e43,7f27023d-8163-41e9-9d11-1cab1ade4d6e,12e6cbdf-815f-478f-8f9d-3c87b6adc5a9,ab6b0bdb-d48d-4c80-bc61-7fca517eb7cf,37309702-9021-40ba-a2d8-3446dca747f2,e1b09d79-d205-4bbe-9d5f-d79df23d5b56,027504c5-23ce-42ae-8aaa-1c4c2df10ead,43a6e580-ca1f-4f8b-b63a-9b1a3e49b72b,46bc9091-e862-4633-bc54-cbf1473fffe9,01fad63f-0f80-4da7-b92a-9bf43062d9c3,2433ef53-9c20-4a85-9c8d-136a4375435d,3a806c10-8ef6-4f00-a9ba-b78faee326a4,587174cf-9b08-44e9-8af5-4d7ac74fa880,9e090282-49ce-4467-94f9-5a85e99c92cf,37dbb3c1-c5f7-4c80-a14a-d622c3775824,0ef51352-b5eb-4cac-a483-a9fa6e536129,8370354f-3451-40b2-9abf-a43e7e62d23d,8103e72f-5acd-4ce9-8c5e-a3af7ba98b36,e29fd27b-746d-4aab-b817-cbc96fc07606,b9e3e345-c7a4-4b86-a1fc-e5b77a8ee6a1,a4295b3f-f9c4-4253-a57a-f42e6ff1a163,9b319622-144f-4573-8a12-a74b6404ca15,b3df6df0-e4ac-44ca-b0c4-27219aaf7e33,6bac6c57-8c80-4639-9691-0ce756fda9ea,a9bafff9-b09e-4124-9d74-482f4d653c4b,5fa55196-5b42-4d47-8599-a724a00435ab,fd780d1e-8cb6-40b2-80cf-acb411f89833,b47da984-e1de-43cc-9149-8fcca0b24340,42d87878-08fe-42f4-9eaa-cd82f1ffc733",
+       "ipaddr": "129.241.230.99",
+       "name": "Omer Jonuzi",
+       "http://schemas.microsoft.com/identity/claims/objectidentifier": "3f0b9f76-5dd0-4f4f-85d3-affbe3572a01",
+       "onprem_sid": "S-1-5-21-3959417778-1711865379-3952174976-358665",
+       "puid": "100320005758FB15",
+       "rh": "0.AQkAcgahCS-CZ0SluluzdZZ8BUZIf3kAutdPukPawfj2MBMJAAM.",
+       "http://schemas.microsoft.com/identity/claims/scope": "user_impersonation",
+       "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier": "i8uDlYJMGSSdVydTjF8rE7LP1tEpil787X1xYh8H-5I",
+       "http://schemas.microsoft.com/identity/claims/tenantid": "09a10672-822f-4467-a5ba-5bb375967c05",
+       "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name": "omerj@ntnu.no",
+       "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn": "omerj@ntnu.no",
+       "uti": "PTjw6g14Z06dvf2WnkwtAA",
+       "ver": "1.0",
+       "xms_tcdt": "1363351898"
+   },
+   "correlationId": "0c1c8dd6-246f-412d-9b2a-90baab4b1a1c",
+   "description": "",
+   "eventDataId": "f714efa3-701c-4673-bcb2-17bcca133cea",
+   "eventName": {
+       "value": "EndRequest",
+       "localizedValue": "End request"
+   },
+   "category": {
+       "value": "Administrative",
+       "localizedValue": "Administrative"
+   },
+   "eventTimestamp": "2022-05-05T08:07:26.1105832Z",
+   "id": "/subscriptions/3d440288-2774-4e29-b3d7-0b9efe86bba7/resourceGroups/bachelor119/providers/Microsoft.DataProtection/backupVaults/bachelor119-performance-backup/backupInstances/bachelor119-performance-postgres-748e4aca-e53b-4e15-9fe2-665e67d8c03e/events/f714efa3-701c-4673-bcb2-17bcca133cea/ticks/637873348461105832",
+   "level": "Informational",
+   "operationId": "c52e2132-8420-446d-b0b8-d7cd42eb2d2e",
+   "operationName": {
+       "value": "Microsoft.DataProtection/backupVaults/backupInstances/restore/action",
+       "localizedValue": "Restore Backup Instance"
+   },
+   "resourceGroupName": "bachelor119",
+   "resourceProviderName": {
+       "value": "Microsoft.DataProtection",
+       "localizedValue": "Microsoft.DataProtection"
+   },
+   "resourceType": {
+       "value": "Microsoft.DataProtection/backupVaults/backupInstances",
+       "localizedValue": "Microsoft.DataProtection/backupVaults/backupInstances"
+   },
+   "resourceId": "/subscriptions/3d440288-2774-4e29-b3d7-0b9efe86bba7/resourceGroups/bachelor119/providers/Microsoft.DataProtection/backupVaults/bachelor119-performance-backup/backupInstances/bachelor119-performance-postgres-748e4aca-e53b-4e15-9fe2-665e67d8c03e",
+   "status": {
+       "value": "Succeeded",
+       "localizedValue": "Succeeded"
+   },
+   "subStatus": {
+       "value": "",
+       "localizedValue": ""
+   },
+   "submissionTimestamp": "2022-05-05T08:09:10.1063319Z",
+   "subscriptionId": "3d440288-2774-4e29-b3d7-0b9efe86bba7",
+   "tenantId": "09a10672-822f-4467-a5ba-5bb375967c05",
+   "properties": {
+       "eventCategory": "Administrative",
+       "entity": "/subscriptions/3d440288-2774-4e29-b3d7-0b9efe86bba7/resourceGroups/bachelor119/providers/Microsoft.DataProtection/backupVaults/bachelor119-performance-backup/backupInstances/bachelor119-performance-postgres-748e4aca-e53b-4e15-9fe2-665e67d8c03e",
+       "message": "Microsoft.DataProtection/backupVaults/backupInstances/restore/action",
+       "hierarchy": "09a10672-822f-4467-a5ba-5bb375967c05/3d440288-2774-4e29-b3d7-0b9efe86bba7"
+   },
+   "relatedEvents": []
+}
+\end{minted}

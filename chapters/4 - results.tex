@@ -1,0 +1,326 @@
+\chapter{Results}
+\label{Results}
+In this chapter, we present the results of the analysis described in chapter 3. We present these results separately for ClickHouse and PostgreSQL in order to more easily look at them holistically here and in the discussion later. 
+
+As this project analyzes the different backup solutions qualitatively, the results are based on our evaluation of how well each experiment highlights the resistance to ransomware of each backup solution, as well as their ease of use.   
+
+\section{ClickHouse}
+
+\subsection{Scenario 1, experiment 1: Encrypting database files}
+
+In this experiment, we encrypted files in our ClickHouse database.
+After encrypting the database files, we expected that either the database would crash entirely, or that database queries would return strange or unreadable output.
+Instead, we observed that the database continued to run, but that certain queries would fail. Queries that included a column whose corresponding file had been encrypted would fail, while queries that didn't would succeed.
+Encrypting the \path{/var/lib/clickhouse/store} directory made all queries against the \texttt{cell\_towers} table fail. Queries against the \texttt{system} table would succeed, though.
+
+This experiment has given us insights about the threat of ransomware attacks against ClickHouse.
+Since ClickHouse is an unmanaged service that runs as a normal program on a VM, it is possible to encrypt the files used by it. In this regard, ClickHouse can be vulnerable to ransomware. The backup solutions themselves do not provide any ways to detect that the data being backed up is encrypted, as far as we know.
+However, since queries are likely to fail when all the ClickHouse data is encrypted, we believe it is possible that the attack would be discovered quickly, if the database is queried frequently.
+If this is not the case, though, the attack might go unnoticed for a long time, resulting in the backups being replaced by encrypted data over time -- depending on the chosen retention time. 
+A possible way to detect encryption could simply be to regularly test if all columns are query-able. This could be done with a simple SQL query which selects all columns. This possibility has not been explored by us, so it is hard to say whether it would be sufficient.
+
+The experiment has also shown us how Azure Backup and clickhouse-backup can be used to recover files, which gave us useful insights into their ease of use. Recovery using Azure Backup can be done in two ways, with the Azure CLI or with the Azure Portal. We used the Azure CLI for these experiments for the sake of reproducibility.
+The CLI does have some advantages over the Portal, like the ability to automate recovery, as well as making it possible to automatically verify that backups are working as intended. If recovery scripts are prepared in advance, it is likely faster than using the Portal, as well as reducing the chance of human errors.
+
+We found recovery using clickhouse-backup to be a bit more involved than recovery using Azure Backup. In order to prevent the spread of ransomware, we suggest rebuilding the VM running ClickHouse before recovering the data. Azure Backup supports replacing the existing VM when recovering, which makes this easy to do. clickhouse-backup only loads data from the backups into the database. The VM has to be rebuilt manually, or by using scripts. Then all the software has to be installed and configured before the backup can be loaded. This is quite simple, but it could be a time consuming process, unless prepared for with scripts or Infrastructure as Code-tools.
+
+\subsection{Scenario 2, experiment 1: Encrypting local backups made with clickhouse-backup}
+
+In this experiment, we encrypted the files corresponding to local backups made with clickhouse-backup. Encrypting local backups causes visual glitches when trying to list them with clickhouse-backup. 
+
+\noindent Attempts at recovering from an encrypted local backup causes the following error: \texttt{error stat /var/lib/clickhouse/backup/local/metadata: no such file or directory}.  \texttt{clickhouse-client} would not start if \path{/var/lib/clickhouse/backup} was encrypted.
+
+In a ransomware attack, it is fair to assume that these backups would be encrypted along with other ClickHouse files, given that the ransomware attacks the \path{/var/lib/clickhouse} directory. As long as the remote backups are still working, recovery should be possible however. 
+
+Encryption of local backups could potentially be dangerous if the local backups are encrypted before they are exported to remote storage. It is difficult to say whether it is likely that ransomware could encrypt the local backup before it is exported in this case. It would depend on the sophistication of the attacker that has managed to gain access to the organisations systems. 
+
+As long as the \texttt{clickhouse-backup create\_remote} command is used to create remote backups, we find this unlikely. This command creates a local backup and exports it immediately to remote storage, which we doubt many attackers would be able to circumvent. 
+
+
+\subsection{Scenario 2, experiments 2 and 3: Deleting backups made with clickhouse-backup}
+
+In experiments 2 and 3, we deleted remote backups made with clickhouse-backup. In experiment 2, we used the clickhouse-backup program itself to delete the backups. In experiment 3, we used the Azure CLI to delete the backups, by deleting the Blobs the backups were stored in.
+
+The reason we tried two methods of doing the same thing was to explore different angles of attack. In experiment 2, we assume the attacker has access to the VM, but not the rest of the system. In experiment 3, we assume the attack has access to the Azure environment.
+
+Deleting the remote backups was possible from both angles of attack. In both cases, the backups were retained in a soft deleted state. We were therefore able to recover the backups by undeleting them. Soft delete has to be explicitly enabled for Blobs first; it is not enabled by default.
+
+The experiments showed how soft delete can be a useful defense against backup deletion. Without it the risk of data loss is higher. The process of undeleting before recovery was also quite easy to do, and whilst undeleting increases the time spent, it is not a complicated step to add to a recovery plan. 
+
+\subsection{Scenario 2, experiment 4: Deleting backups in Recovery Services Vaults}
+
+This experiment was similar to experiments 2 and 3. In this experiment, backups made with Azure Backup were deleted using the Azure CLI. Like with Blobs (used by clickhouse-backup), soft delete prevents the immediate deletion of the backups. Unlike with Blobs, soft delete is enabled by default for Recovery Services vaults.
+
+Like in experiment 2 and 3, soft delete is a feature that both increases security, but without increasing complexity. 
+
+The deletion of backups in Azure Backup triggered an automatic "Delete Backup Data" alert from Azure Monitor. Alerts such as these can help an organization detect that they are under attack. Recieving such an alert should mean that the organisation is able to react much faster to a ransomware attack. 
+
+\subsection{Scenario 3, experiment 1: Disabling soft delete and deleting backups}
+
+In this experiment, we disabled soft delete for Azure Backup and then deleted the backups. This resulted in immediate deletion of the backups, with no way of recovering them. While soft delete can be a useful tool for recovering deleted backups, it is not a silver bullet. Backups made using either backup solution can be deleted instantly and permanently by first disabling soft delete. This is expected functionality, as there can be legitimate reasons to delete backups instantly. This shows that stopping malicious actors from disabling soft delete is crucial.
+
+\subsection{Scenario 3, experiment 2: Deleting a Recovery Services vault}
+
+In this experiment, the Recovery Services vault used for Azure Backup was deleted using a PowerShell script.
+
+The goal was to see how fast an attacker can delete an RSV, if they have the right privileges.
+It turns out that this can be done very quickly. The script only takes a few minutes to complete and permanently deletes everything in the vault, with no way to recover it.
+
+In addition to elevated privileges, access to four variables is required:
+\begin{itemize}
+    \item The name of vault
+    \item The name of the resource group
+    \item The name of the subscription
+    \item The subscription ID
+\end{itemize}
+
+A "Soft Delete disabled for Vault" alert was fired by Azure Monitor, but by the time this goes through, it might be to late to do anything about it.
+
+This script can be used to quickly and easily delete all backup data stored in Azure Backup. A script could also be made for deleting a Storage Blob Container in a similar manner. In the case where an attacker obtains the necessary privileges, it seems neither backup solution is able to prevent such an attack without other protections in place. 
+
+While these experiments show that data loss is inevitable if an attacker gains access to full administrator privileges, it is not a bad thing: Unless such features are configured and implemented into a system, an administrator account Should be able to delete their own backups. Protecting against compromised administrator accounts is however necessary to avoid having a single point of failure for an entire organisations data. 
+
+\subsection{Scenario 3, experiment 3: Preventing soft delete from being disabled with MUA}
+
+In this experiment, Multi-user authorization (MUA) was enabled for a Recovery Services vault before attempting to delete it with the script from experiment 2. With MUA enabled, we were unable to delete it. We were also unable to disable soft delete for the vault without requesting access from the security administrator. 
+
+MUA can prevent this attack as long as the attacker does not have access to both the backup administrator and the security administrator account. This greatly reduces the probability that the attacker would be able to threaten an organisations data even with access to a compromised administrator account. With MUA enabled, we believe Azure Backup would be quite resistant to backup deletion.
+
+Unfortunately, MUA is not available for Azure Storage Blobs, which means that this extra layer of security cannot be utilized by clickhouse-backup.
+The risk can still be mitigated by ensuring that alerts are being properly monitored, and that administrator accounts are only used when absolutely necessary.
+
+\subsection{Performance tests for ClickHouse}
+
+The speed of recovery using both Azure Backup and clickhouse-backup was measured,
+in order to compare their performance.
+
+\subsubsection{Azure Backup}
+
+%Several unsuccessful attempts at recovery using Azure Backup were performed. The failed recoveries all used the same recovery point  (the one that was made by triggering an instant backup job during the preparation of the performance test environment. See \ref{app:ch-perf} in the appendix). After recovery was performed using this restore point, the ClickHouse server would not start, and SSH would stop working after rebooting the VM. When recovery was attempted using a different recovery point, tests were successful.
+
+Two successful performance tests were performed.
+One using the Azure Portal, and one using the Azure CLI.
+The time for the restore job itself is noted separately.
+The total time includes the time for us to paste commands, etc.\\
+
+Test 1 (Azure Portal):
+\begin{center}
+\begin{tabular}{lr}
+\hline
+ & Time (hh:mm:ss)\\
+\hline
+Restore job: & 00:02:10\\
+Total: & 00:03:30\\
+\hline
+\end{tabular}
+\end{center}
+
+Test 2 (Azure CLI):
+\begin{center}
+\begin{tabular}{lr}
+\hline
+ & Time (hh:mm:ss)\\
+\hline
+Restore job: & 00:01:06\\
+Total: & 00:06:33\\
+\hline
+\end{tabular}
+\end{center}
+
+This assumes that an Instant Restore point is available. If this is not the case, the backup first has to be retrieved from the Recovery Services vault. This can take several hours, depending on various factors [citation needed].
+
+% [TODO] Fast 1TB recovery
+% Supports 32TB.
+% Is presumably pretty fast even then
+Azure Backup supports individual disks up to 32TB \cite{v-amallick_azure_nodate}.
+
+\subsubsection{clickhouse-backup}
+Three unsuccessful attempts were made at recovering from clickhouse-backup. We were unable to solve the issue.Here is an example of an error that occurred during a download:
+
+\texttt{2022/05/12 10:02:43.087969 error one of Download go-routine return error: one of downloadTableData go-routine return error: handling file: /all\_3441\_4218\_4/file\_time.bin: context deadline exceeded}
+
+Because of this, we were unable to do a proper performance test for clickhouse-backup.
+
+clickhouse-backup's GitHub page contains a short paragraph about backing up terabytes of data using clickhouse-backup \cite{akulov_clickhouse-backup_2022-1}. They recommend making a local backup with clickhouse-backup and then using clickhouse-copier (see \ref{theory:ch-solutions} to copy the backup to another VM. This might indicate that clickhouse-backup's remote storage feature does not scale well enough to be used for several terabyte large databases.
+% [TODO] Nevne at vi burde researcha bedre?
+
+% [TODO] ha med?
+% This experience shook our trust in clickhouse-backup as a reliable backup solution.
+
+Despite our struggles, we still believe we were able to get a good overview of how long recovery could take.
+Recovery with clickhouse-backup consists of two steps:
+Downloading the backup and restoring the database.
+The first step is determined by the time it takes to transfer the files from Blob storage to the VM.
+The second is determined by how fast the data can be loaded in the database.
+While preparing the test environment (\ref{app:ch-perf}),
+the time it took to make and upload the backup was measured.
+If we assume the upload and the download time for the backups are the same,
+we essentially know how long it would take to download the backups.
+What remains is the restore step.
+This was measured by restoring the database from the local backup of the same 1TB data set.
+Below is a table showing the theoretical performance of clickhouse-backup with 1TB of data.\\
+
+Theoretical performance:
+\begin{center}
+\begin{tabular}{lr}
+\hline
+ & Time (hh:mm:ss)\\
+\hline
+Upload: & 03:18:48\\
+Local restore: & 00:00:03\\
+Total: & 03:18:51\\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Cost}
+
+The cost of both backup solutions can vary greatly based on several factors.
+
+Prices are calculated in the North Europe region and displayed in USD.
+
+\subsubsection{Azure Backup cost}
+
+The pricing information in this section is based on the pricing details provided by Microsoft
+\cite{noauthor_pricing_nodate-1}.
+% [https://azure.microsoft.com/en-us/pricing/details/backup/].
+
+Azure Backup has a base cost, which is calculated per VM.
+For instances larger than 500GB, this cost is 
+\$10 for each 500 GB increment + storage consumed.
+In addition, a separate amount is charged based on the redundancy tier used
+(see \ref{theory:redundancy-tiers} for information on redundancy tiers).
+
+Below are two simple calculations assuming that a single 10TB VM will be backed up,
+and that the amount of data will not change over time.
+
+Cost of backing up a 10TB VM using LRS:
+\begin{center}
+\begin{tabular}{ll}
+\hline
+ & Cost per month\\
+\hline
+Base cost & \$200\\
+Redundancy (LRS) & \$224\\
+\hline
+Total & \$424\\
+\hline
+\end{tabular}
+\end{center}
+
+Cost of backing up a 10TB VM using GRS:
+\begin{center}
+\begin{tabular}{ll}
+\hline
+ & Cost per month\\
+\hline
+Base cost & \$200\\
+Redundancy (GRS) & \$448\\
+\hline
+Total & \$648\\
+\hline
+\end{tabular}
+\end{center}
+
+The number of Instant Restore points can affect the total cost of Azure Backup.
+According to Microsoft, the cost can be calculated with the following formula:
+"Snapshot retention period daily churn per VM storage cost per GB" 
+[https://docs.microsoft.com/en-us/azure/backup/backup-instant-restore-capability].
+The term churn refers to percentage of data that is changed each day.
+The minimum number of Instant Restore points one can have with Azure Backup is one.
+
+The number of retention points and the length of the retention period also affect costs.
+This is dependent on churn, which varies from organization to organization.
+
+\subsubsection{clickhouse-backup cost [TODO]}
+
+Pricing details are based on the pricing for Blob storage in Microsoft's documentation 
+\cite{noauthor_azure_nodate-1} 
+
+% [https://azure.microsoft.com/en-us/pricing/details/storage/blobs/#pricing].
+
+clickhouse-backup used in combination with 
+Azure Storage Blobs can provide a cost effective backup solution.
+The pricing model is a bit simpler than Azure Backup's.
+Below are two simple calculations for the monthly price of 10TB of data using different redundancy tiers.
+The calculations assume that the "hot" storage is used.
+
+LRS:
+$\$0.022 \times 10000GB = \$220$ per month.
+
+GRS:
+$\$0.037 \times 10000GB = \$370$ per month.
+
+Like the calculations for Azure Backup, these calculations assume that data will not change over time,
+which is unrealistic in many cases.
+
+clickhouse-backup supports the use of incremental backups.
+This would make the cost calculation over time similar to Azure Backup,
+in that the changes 
+
+
+
+
+\section{PostgreSQL}
+
+\subsection{Scenario 1, experiment 1: Recovery with Point-in-time-Restore}
+The first experiment of this scenario shows how easy and effective postgres' PITR-functionality is. We could restore to exactly the point in time we needed to, regardless of whether a backup had been made at that time. The lost data was recovered, and we were quickly up and running again, in part due to its ease of use. 
+
+One aspect of the restoration process that is a drawback for ease of use is the fact that a new database instance had to be deployed which the data could be restored to. This includes configuration of the new server instance in order to integrate it with the rest of the architecture, and if there is no procedure, practice, or plan in order to do this effectively, RTO may increase considerably. RTO will be looked at more closely when performance testing the backup solutions.  
+
+This experiment also shows how highly PITR functionality scores for RPO, as the organisation can restore to the state of the data only seconds before the data breach. This is because the feature uses the change-log in the database to track continuous changes to the data. However, if the breach had long been ongoing and the database filled with corrupted data, the short retention period may be detrimental. This is due to the relatively meager 35 days of retention in PITR. Whether it is likely that encrypted data in this database would not be discovered is dependent on the data type and the organisation in question.
+%The first experiment of this scenario showed us how easy and effective postgres' PITR-functionality is. We could restore to exactly the point in time we needed to, regardless of whether a backup had been made at that time. The lost data was restored, and we were quickly up and running again, in part due to its ease of use. 
+
+%This experiment also showed how highly this functionality scores for RPO, as the organisation can restore to the state of the data only seconds before the data breach. This is because the feature uses the change-log in the database to track continuous changes to the data. However, if the breach had long been ongoing and the database filled with corrupted data, the short retention period may be detrimental. Whether it is likely that encrypted data in this database would not be discovered in dependent on the data type and the organisation in question. RTO will be looked at more closely in the performance testing.
+
+\subsection{Scenario 1, experiment 2: Recovery with Azure Backup For PostgreSQL}
+Similarly to the previous experiment, this was just as easy to use, and was also able to meet the requirement of the experiment; restoring the data. Where it falls short however is in RPO. The latest data, or recent changes to the data can only be recovered if the latest backup was made after those changes.  This could result in a bigger data loss depending on the time of the attack. Whilst not an uncommon caveat of any backup solution, it's relevant to consider how important any change in data is to the organisation. The fact that Azure Backup data can be stored for up to ten years in a Backup vault is an advantage however, since long-term storage may be necessary for compliance. 
+
+This scenario shows how well PITR and Azure Backup complement each other in a holistic implementation. These backup-solutions are compatible, may be used in parallel, and work in consort. Both recovered the database easily and effectively, and were reliable in our testing. In this way an organisation can combine the great RPO of PITR, and still retain long term backups with Azure Backup.
+
+\subsection{Scenario 2, experiment 1: Deleting database-server and restoring with PITR}
+This experiment largely yielded the same results as the first experiment in scenario 1. As recovery with PITR has to be made to a new server instance anyway, the difference between the two experiments was negligible. 
+
+Deleting the database-server does not delete the recovery points, and there is no way of deleting restore points. This means that despite there being no way of restoring the deleted database or backup, the organisation can still recover their data through PITR.
+
+\subsection{Scenario 2, experiment 2: Deleting backup-instance in Backup vault and attempting undelete}
+This experiment highlighted some weaknesses of Backup vaults. Azure backup for PostgreSQL is implemented in Backup vaults, instead of the newer Recovery Service vaults, and lacks support for several features that increase security, especially for this scenario.  Soft-delete is a great feature of Recovery Services vault, as our Clickhouse-experiments showed. This not being a feature of Backup vault makes PostgreSQL backups far more vulnerable attacks that target the backup data.
+
+The combination of Azure backup and PITR met the security requirements of our second scenario. The solution would however have been more robust and reliable if the PostgreSQL-database had been backed up in a Recovery Service vault instead of a Backup vault.
+
+%RIP til en legendarisk avsnitt
+%Attempting to undelete a deleted backup instance from inside a Backup vault proved to be difficult. That is because you cannot do it. This experiment showed how brittle Backup vault is, and how much its lacking features cripple it. In this experiment Azure backup fails on all accounts, apart from cost -- as it is much cheaper to store no data in a Backup vault than years worth of Backups. 
+
+\subsection{Scenario 2, experiment 3: Setting up alerts and deleting backup-instance}
+This experiment is not about evaluating the restoration process of either backup solution, but rather a related security feature. It was discovered in testing the other experiments, and is a relevant part of our analysis, which is why we included it.
+
+In this experiment we discovered that Azures built in, automatic alerts for deleted backup data does not work with their PostgreSQL backup solution. The cause of this is likely that the Alerts are inherently tied to the soft delete functionality, and as Backup vault does not support soft delete, they do not support those alerts either. The fact that the documentation made it appear as if these alerts were automatic when they were not is something we consider a massive flaw of either the implementation in Azure, or the documentation.
+
+Setting up manual alerts was an effective counter to this problem, and by the end of the experiment we were able to maintain needed functionality and get alerted whenever any backup instance was deleted from a backup vault. After implementing our own alert-rule for deleted backup instances, we consider our PostgreSQL backup architecture to be even more resilient, as administrators can be alerted if an attack is ongoing.
+
+This scores low on ease-of-use however, and we imagine it is far easier to bypass compared to the built-in solution that worked effectively in our Clickhouse experiments.
+
+\subsection{Scenario 3}
+As discussed earlier in chapter \ref{pg_sc3}, there were no experiments needed to be performed here that were not already done for scenario two. There are some remarks however.
+
+As Backup vault does not support Multi-user authorization there was no need to attempt to enable it. Consequently, there was no way to limit the capabilities of a compromised backup admin within the scope of the Backup vault. This means that a compromised account in this role would all but guarantee the loss of all data in the vault. Instead of MUA, designing and implementing an access management design that is based on RBAC and Zero trust proved a worthy replacement. As learned in chapter \ref{ZeroTrust}, administrator accounts become vulnerable to risk if used more often than necessary. A large number of permissions in a single account is a single point of failure. No account should have any permissions beyond the ones they absolutely need, and administrator accounts should not be used beyond the tasks they need those privileges for.
+
+Ensuring that the backup admin does not have permissions to delete the database instance will reduce risk in the system. Whilst not actually being MUA, it will inherently require two administrator accounts to be compromised before risk of data loss, which is more unlikely. Since the backup in Azure Backup is a different resource in Azure than the database itself, dividing responsibilities in the organisation according to RBAC-methology, and making no admin the single source of failure accomplishes some of the protection that lies in MUA.
+
+In addition to MUA, other lacking Recovery Service vault features such as soft-delete and automatic alerts would all be helpful in this implementation. Use of PITR alongside Backup Vault largely remedied the shortcomings of a lack of soft-delete feature. Further, our implementation of alert rules in appendix \ref{app_pg_s2e2} was an adequate replacement for the automatic ones in Recovery Service vaults. 
+
+Azure supports a lot of fine-grained control over access rules and alerts, and this scenario showed how much an organisations security can improve with the correct implementation, despite the latest security features not being available. Even though Recovery Service vaults would have been nice to have, and would have made implementation easier and less prone to human error, the lack of that support does not mean that security is inherently compromised.
+
+\subsection{Performance tests for PostgreSQL}
+A Backup vault has the ability to perform a manual full backup at any given time, which is more effective to restore to than a solution based on a range of differential backups. A full backup in a Backup vault was performed with operation details shown in the appendix (see \ref{app:pg-restore1}). The backup instance was then deployed to a new server, giving a recovery time of 1 minute and 54 seconds.
+
+For PITR we used the Azure REST API to deploy a server with PITR creation mode, where the goal was to measure the time it takes to have a functioning database from a given previous state. A database equal in size to the one used in the backup vault experiment took 31 minutes and 27 seconds to deploy, see operation details in the appendix (\ref{app:pg-restore2}). 
+
+There was an expectation of different performance when recovering from backup vault versus using PITR. Part of this was that PITR recovery requires deploying a new server, which meant we had to count with server creation time as part of the recovery time. Our expectations were however exceeded in regards to the efficiency the vault solution exhibited with a stark difference of 29 minutes and 33 seconds, approximating to 15 times faster recovery using backup vault compared to PITR.
+
+It is worth noting however that the backup instance in the vault was a recent full backup, while PITR most likely used transaction logs and differential backups to reconstruct the database to the specified point in time. Because of this there is a trade-off that the victim organisation must consider: Do they restore as quickly as possible to as quickly as possible resume business operations, or do they restore to the most recent possible recovery point with PITR, but spend much longer doing so? The difference may be more substantial than in our case if the transaction log is much longer than in our experiments. 
+
+\subsection{PostgreSQL cost}
+Similarly to Clickhouses backup solutions the pricing for PostgreSQLs backup solutions vary depending on several factors. The PostgreSQL-service in Azure is priced depending on performance -- the number of virtual cores and memory -- as well as the storage used \cite{noauthor_pricing_nodate-1}. The Point-in-time-Restore data is part of this, but charges an additional amount depending on redundancy tier and storage amount. If the data changes frequently this extra storage amount will increase. 
+
+Azure Backup is priced in a similar manner, with a set price per instance, plus however much storage is used for the backup -- again depending on redundany tier. Extra fees are also incurred if archived data is deleted early, or retrieved back to hot storage.

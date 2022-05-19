@@ -1,0 +1,93 @@
+\section{Postgres: Enabling alerts for Backup vault instance deletion}
+\label{app_pg_s2e2}
+
+The following template shows how an alert for deleted backup instances can be created. Worth noting that the only supported scope is for the whole subscription, and not a single resource group or Backup vault.
+
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "activityLogAlerts_Deleted_backup_name": {
+            "defaultValue": "Deleted backup",
+            "type": "String"
+        },
+        "actiongroups_backup_deletion_notification_externalid": {
+            "defaultValue": "/subscriptions/c29c75c2-44ed-4c7e-a49f-12ebe97637dd/resourceGroups/aasmunhs/providers/microsoft.insights/actiongroups/backup deletion notification",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "microsoft.insights/activityLogAlerts",
+            "apiVersion": "2020-10-01",
+            "name": "[parameters('activityLogAlerts_Deleted_backup_name')]",
+            "location": "Global",
+            "properties": {
+                "scopes": [
+                    "/subscriptions/c29c75c2-44ed-4c7e-a49f-12ebe97637dd"
+                ],
+                "condition": {
+                    "allOf": [
+                        {
+                            "field": "category",
+                            "equals": "Administrative"
+                        },
+                        {
+                            "field": "operationName",
+                            "equals": "Microsoft.DataProtection/backupVaults/backupInstances/delete"
+                        },
+                        {
+                            "field": "level",
+                            "containsAny": [
+                                "informational"
+                            ]
+                        },
+                        {
+                            "field": "status",
+                            "containsAny": [
+                                "succeeded"
+                            ]
+                        }
+                    ]
+                },
+                "actions": {
+                    "actionGroups": [
+                        {
+                            "actionGroupId": "[parameters('actiongroups_backup_deletion_notification_externalid')]",
+                            "webhookProperties": {}
+                        }
+                    ]
+                },
+                "enabled": true
+            }
+        }
+    ]
+}
+\end{minted}
+
+As shown, notification type can be modified in the action group:
+
+\includegraphics[width=.9\linewidth]{figures/postgresaasmund/20.PNG}
+
+When deleting a postgres-backup instance the following email was sent:
+
+
+\begin{minted}[breaklines=true,breakanywhere=true]{text}
+Azure Monitor alert 'Deleted backup' was activated for 'bachelor119-psql-postgres-restored-748229ab-ebae-4836-baf5-87bb4150b08c' at May 9, 2022 22:36 UTC
+You’re receiving this notification as a member of the BACKUP DELET action group because an Azure Monitor alert was activated.	
+
+Activity log alert	Deleted backup
+Time	May 9, 2022 22:36 UTC
+Category	Administrative
+Operation name	Microsoft.DataProtection/backupVaults/backupInstances/delete
+Correlation ID	74d31364-31cb-497a-8c8a-359a81d5b843
+Level	Informational
+Resource ID	/subscriptions/c29c75c2-44ed-4c7e-a49f-12ebe97637dd/resourceGroups/bProject/providers/Microsoft.DataProtection/backupVaults/bVault-bachelor119/backupInstances/bachelor119-psql-postgres-restored-748229ab-ebae-4836-baf5-87bb4150b08c
+Caller	aasmunhs@ntnu.no
+
+Properties	{"eventCategory":"Administrative","entity":"/subscriptions/c29c75c2-44ed-4c7e-a49f-12ebe97637dd/resourceGroups/bProject/providers/Microsoft.DataProtection/backupVaults/bVault-bachelor119/backupInstances/bachelor119-psql-postgres-restored-748229ab-ebae-4836-baf5-87bb4150b08c","message":"Microsoft.DataProtection/backupVaults/backupInstances/delete","hierarchy":"09a10672-822f-4467-a5ba-5bb375967c05/c29c75c2-44ed-4c7e-a49f-12ebe97637dd"}
+
+\end{minted}
+

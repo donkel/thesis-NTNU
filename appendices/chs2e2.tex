@@ -1,0 +1,1057 @@
+\section{Delete backups via \texttt{clickhouse-backup}}
+\label{app:chs2e2}
+In this experiment, local and remote backups were deleted using \texttt{clickhouse-backup}.
+Attempts were then made to recover the deleted remote files by undeleting them using the Azure CLI.
+The first attempt failed, because soft delete had not been enabled correctly.
+Soft delete was then enabled for blobs, and the experiment was repeated.
+
+\subsection{Preparation}
+\label{sec:orgde09cc4}
+The following variables were declared:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+$AccKey = "NdbW07WlHBf5zcpMXundwkP88Ie2SO1Ad+84VD8moaUg1ihIeRR7cEdy4FXIgHRvIQwPIMc7eD2q+ASt6EqxWg==" # Storage Account Access Key
+$StorageAccount = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $SAName} # clickhouse-backup storage account
+\end{minted}
+
+\subsection{Delete local backups}
+\label{sec:orgc3afe18}
+Listing local backups:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list
+# 2022/05/06 06:20:48.820972  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 06:20:48.830191  info SELECT * FROM system.disks;
+# 2022-05-02T09-34-00   1.07GiB   02/05/2022 09:34:01   local
+# 2022-05-02T09-48-03   1.07GiB   02/05/2022 09:48:03   local
+# 2022-05-02T09-48-18   1.07GiB   02/05/2022 09:48:18   local
+\end{minted}
+
+Deleting all the local backups:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup delete local 2022-05-02T09-34-00
+# 2022/05/06 06:51:05.560887  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 06:51:05.567336  info SELECT * FROM system.disks;
+# 2022/05/06 06:51:05.585788  info done                      backup=2022-05-02T09-34-00 duration=29ms location=local operation=delete
+
+sudo ./clickhouse-backup delete local 2022-05-02T09-48-03
+# 2022/05/06 06:51:05.630403  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 06:51:05.635599  info SELECT * FROM system.disks;
+# 2022/05/06 06:51:05.645033  info done                      backup=2022-05-02T09-48-03 duration=18ms location=local operation=delete
+
+sudo ./clickhouse-backup delete local 2022-05-02T09-48-18
+# 2022/05/06 06:51:05.677436  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 06:51:05.683594  info SELECT * FROM system.disks;
+# 2022/05/06 06:51:05.696499  info done                      backup=2022-05-02T09-48-18 duration=23ms location=local operation=delete
+\end{minted}
+
+Trying to list the backups (no results):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list
+# 2022/05/06 06:52:09.307718  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 06:52:09.313018  info SELECT * FROM system.disks;
+\end{minted}
+
+\subsection{Delete remote backups via \texttt{clickhouse-backup} and restore via Azure CLI (first attempt)}
+\label{sec:orgc78125c}
+\subsubsection{Create remote backup}
+\label{sec:orga0b4c06}
+Creating a remote backup:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup create_remote --config config.yaml
+# 2022/05/06 12:08:24.906957  info SELECT name, engine FROM system.databases WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+# 2022/05/06 12:08:24.916734  info SHOW CREATE DATABASE `default`
+# 2022/05/06 12:08:24.928118  info SELECT count() FROM system.settings WHERE name = 'show_table_uuid_in_table_create_query_if_not_nil'
+# 2022/05/06 12:08:24.934948  info SELECT name FROM system.databases WHERE engine IN ('MySQL','PostgreSQL')
+# 2022/05/06 12:08:24.940334  info
+# 		SELECT
+# 			countIf(name='data_path') is_data_path_present,
+# 			countIf(name='data_paths') is_data_paths_present,
+# 			countIf(name='uuid') is_uuid_present,
+# 			countIf(name='create_table_query') is_create_table_query_present,
+# 			countIf(name='total_bytes') is_total_bytes_present
+# 		FROM system.columns WHERE database='system' AND table='tables'
+#
+# 2022/05/06 12:08:24.947893  info SELECT database, name, engine , data_paths , uuid , create_table_query , coalesce(total_bytes, 0) AS total_bytes   FROM system.tables WHERE is_temporary = 0 SETTINGS show_table_uuid_in_table_create_query_if_not_nil=1
+# 2022/05/06 12:08:24.984565  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 12:08:24.991468  info SELECT * FROM system.disks;
+# 2022/05/06 12:08:24.996567  info ALTER TABLE `default`.`cell_towers` FREEZE WITH NAME '247d916bc61f4c05af26280ad8f3be9f';
+# 2022/05/06 12:08:25.032979  info done                      backup=2022-05-06T12-08-24 operation=create table=default.cell_towers
+# 2022/05/06 12:08:25.034527  info SELECT value FROM `system`.`build_options` where name='VERSION_DESCRIBE'
+# 2022/05/06 12:08:25.041405  info done                      backup=2022-05-06T12-08-24 duration=142ms operation=create
+# 2022/05/06 12:08:25.047661  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 12:08:25.051625  info SELECT * FROM system.disks;
+# 2022/05/06 12:08:25.059594  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022/05/06 12:10:21.914725  info done                      backup=2022-05-06T12-08-24 duration=1m56.772s operation=upload size=1.07GiB table=default.cell_towers
+# 2022/05/06 12:10:21.932113  info done                      backup=2022-05-06T12-08-24 duration=1m56.89s operation=upload size=1.07GiB
+\end{minted}
+
+Listing remote backups:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list remote --config config.yaml
+# 2022/05/06 12:13:23.147970  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022-05-06T12-08-24   1.07GiB   06/05/2022 12:10:21   remote      tar
+\end{minted}
+
+\subsubsection{Delete remote backup}
+\label{sec:orgc9798ca}
+Deleting remote backups:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup delete remote 2022-05-06T12-08-24 --config config.yaml
+# 2022/05/06 12:15:02.656213  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022/05/06 12:15:02.777130  info done                      backup=2022-05-06T12-08-24 duration=124ms location=remote operation=delete
+\end{minted}
+
+Trying to list remote backups (no result):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list remote --config config.yaml
+# 2022/05/06 12:15:19.106515  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+\end{minted}
+
+\subsubsection{Undelete remote backups via Azure CLI}
+\label{sec:orgba36207}
+Trying to list remote backups (blobs) via the Azure Cloud Shell (including deleted blobs):
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage blob list --account-name $SAName --container-name $ContainerName --account-key $AccKey --include d
+\end{minted}
+
+The result was an empty array (\texttt{[]}).
+The container was still visible in the Azure Portal, though.
+
+It appears that \texttt{clickhouse-backup} bypasses container soft delete in a sense,
+by deleting the contents of the container, but not the container itself.
+Thus, the container (and the backups) cannot be undeleted, since it was never deleted in the first place.
+To verify this, the container was deleted via the Azure Portal and then undeleted.
+
+\subsection{Enable soft delete for blobs}
+\label{sec:org351b010}
+Since the previous attempt at recovering remote \texttt{clickhouse-backups} via soft delete failed,
+because we used the ``wrong'' type of soft delete, we decided to try again.
+This time, we enabled soft delete for the blobs themselves.
+
+Enable soft delete for Blobs:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage account blob-service-properties update --account-name $SAName `
+    --resource-group $RGName `
+    --enable-delete-retention true `
+    --delete-retention-days 7
+\end{minted}
+
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "automaticSnapshotPolicyEnabled": null,
+  "changeFeed": null,
+  "containerDeleteRetentionPolicy": {
+    "allowPermanentDelete": null,
+    "days": 7,
+    "enabled": true
+  },
+  "cors": {
+    "corsRules": []
+  },
+  "defaultServiceVersion": null,
+  "deleteRetentionPolicy": {
+    "allowPermanentDelete": null,
+    "days": 7,
+    "enabled": true
+  },
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Storage/storageAccounts/chbksa/blobServices/default",
+  "isVersioningEnabled": null,
+  "lastAccessTimeTrackingPolicy": null,
+  "name": "default",
+  "resourceGroup": "testRG",
+  "restorePolicy": null,
+  "sku": null,
+  "type": "Microsoft.Storage/storageAccounts/blobServices"
+}
+\end{minted}
+
+\subsection{Delete remote backups via \texttt{clickhouse-backup} and restore via Azure CLI (second attempt)}
+\label{sec:orge96f96c}
+\subsubsection{Create remote backup}
+\label{sec:org237f76e}
+A remote backup was created:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup create_remote --config config.yaml
+# 2022/05/06 12:41:19.110753  info SELECT name, engine FROM system.databases WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+# 2022/05/06 12:41:19.185348  info SHOW CREATE DATABASE `default`
+# 2022/05/06 12:41:19.192509  info SELECT count() FROM system.settings WHERE name = 'show_table_uuid_in_table_create_query_if_not_nil'
+# 2022/05/06 12:41:19.199675  info SELECT name FROM system.databases WHERE engine IN ('MySQL','PostgreSQL')
+# 2022/05/06 12:41:19.205297  info
+# 		SELECT
+# 			countIf(name='data_path') is_data_path_present,
+# 			countIf(name='data_paths') is_data_paths_present,
+# 			countIf(name='uuid') is_uuid_present,
+# 			countIf(name='create_table_query') is_create_table_query_present,
+# 			countIf(name='total_bytes') is_total_bytes_present
+# 		FROM system.columns WHERE database='system' AND table='tables'
+#
+# 2022/05/06 12:41:19.212594  info SELECT database, name, engine , data_paths , uuid , create_table_query , coalesce(total_bytes, 0) AS total_bytes   FROM system.tables WHERE is_temporary = 0 SETTINGS show_table_uuid_in_table_create_query_if_not_nil=1
+# 2022/05/06 12:41:19.231869  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 12:41:19.237796  info SELECT * FROM system.disks;
+# 2022/05/06 12:41:19.243268  info ALTER TABLE `default`.`cell_towers` FREEZE WITH NAME '8fac6ff911f04cf68521c2d87f778dd7';
+# 2022/05/06 12:41:19.320599  info done                      backup=2022-05-06T12-41-19 operation=create table=default.cell_towers
+# 2022/05/06 12:41:19.321056  info SELECT value FROM `system`.`build_options` where name='VERSION_DESCRIBE'
+# 2022/05/06 12:41:19.330933  info done                      backup=2022-05-06T12-41-19 duration=227ms operation=create
+# 2022/05/06 12:41:19.338082  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/06 12:41:19.342402  info SELECT * FROM system.disks;
+# 2022/05/06 12:41:19.350151  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022/05/06 12:41:40.804639  info done                      backup=2022-05-06T12-41-19 duration=21.379s operation=upload size=1.07GiB table=default.cell_towers
+# 2022/05/06 12:41:40.822260  info done                      backup=2022-05-06T12-41-19 duration=21.491s operation=upload size=1.07GiB
+\end{minted}
+
+Listing the remote backup:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list remote --config config.yaml
+# 2022/05/06 12:43:35.718005  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022-05-06T12-41-19   1.07GiB   06/05/2022 12:41:40   remote      tar
+\end{minted}
+
+\subsubsection{Delete remote backup}
+\label{sec:org1dca49d}
+Deleting the remote backup:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup delete remote 2022-05-06T12-41-19 --config config.yaml
+# 2022/05/06 12:44:26.871214  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022/05/06 12:44:26.977566  info done                      backup=2022-05-06T12-41-19 duration=110ms location=remote operation=delete
+\end{minted}
+
+Listing the remote backup (no result):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list remote --config config.yaml
+# 2022/05/06 12:44:54.497519  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+\end{minted}
+
+Listing the deleted blobs in the Azure CLI:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage blob list --account-name $SAName --container-name $ContainerName --account-key $AccKey --include d
+\end{minted}
+
+Output (notice that \texttt{deleted} is \texttt{true} for the blobs):
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+[
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": true,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata.json",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 518,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:40+00:00",
+      "deletedTime": "2022-05-07T12:27:14+00:00",
+      "etag": "0x8DA2F5DC4E522F7",
+      "lastModified": "2022-05-06T12:41:40+00:00",
+      "lease": {
+        "duration": null,
+        "state": null,
+        "status": null
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": 6,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  },
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": true,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata/default/cell_towers.json",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 888,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:40+00:00",
+      "deletedTime": "2022-05-07T12:27:14+00:00",
+      "etag": "0x8DA2F5DC4E23D31",
+      "lastModified": "2022-05-06T12:41:40+00:00",
+      "lease": {
+        "duration": null,
+        "state": null,
+        "status": null
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": 6,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  },
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": true,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_1_35_2.tar",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 940539392,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:36+00:00",
+      "deletedTime": "2022-05-07T12:27:14+00:00",
+      "etag": "0x8DA2F5DC241DE8B",
+      "lastModified": "2022-05-06T12:41:36+00:00",
+      "lease": {
+        "duration": null,
+        "state": null,
+        "status": null
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": 6,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  },
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": true,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_36_41_1.tar",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 201757696,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:40+00:00",
+      "deletedTime": "2022-05-07T12:27:14+00:00",
+      "etag": "0x8DA2F5DC4B0D44C",
+      "lastModified": "2022-05-06T12:41:40+00:00",
+      "lease": {
+        "duration": null,
+        "state": null,
+        "status": null
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": 6,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  },
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": true,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_42_42_0.tar",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 8671232,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:40+00:00",
+      "deletedTime": "2022-05-07T12:27:14+00:00",
+      "etag": "0x8DA2F5DC4DEE251",
+      "lastModified": "2022-05-06T12:41:40+00:00",
+      "lease": {
+        "duration": null,
+        "state": null,
+        "status": null
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": 6,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  }
+]
+\end{minted}
+
+\subsubsection{Undelete remote backups via Azure CLI}
+\label{sec:org3630c7e}
+Undeleting the deleted backups:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# List all blobs and retrieve deleted blobs from list
+$Blobs = az storage blob list --account-name $SAName --container-name $ContainerName --account-key $AccKey --include d | ConvertFrom-Json -AsHashtable
+$DeletedBlobs = $($Blobs | Where-Object { $_.deleted })
+
+# Undelete deleted blobs
+foreach($Blob in $DeletedBlobs) {
+    az storage blob undelete --container-name $ContainerName --name $Blob.name --account-key $AccKey --account-name $SAName
+}
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "undeleted": null
+}
+{
+  "undeleted": null
+}
+{
+  "undeleted": null
+}
+{
+  "undeleted": null
+}
+{
+  "undeleted": null
+}
+\end{minted}
+
+\subsubsection{Verify results}
+\label{sec:org0597206}
+Listing the Blobs in the Azure Cloud Shell:
+
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage blob list --account-name $SAName --container-name $ContainerName --account-key $AccKey --include d
+\end{minted}
+
+Output (notice that \texttt{deleted} is \texttt{null}):
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+[
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": null,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata.json",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 518,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:40+00:00",
+      "deletedTime": null,
+      "etag": "0x8DA2F5DC4E522F7",
+      "lastModified": "2022-05-06T12:41:40+00:00",
+      "lease": {
+        "duration": null,
+        "state": "available",
+        "status": "unlocked"
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": null,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  },
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": null,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata/default/cell_towers.json",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 888,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:40+00:00",
+      "deletedTime": null,
+      "etag": "0x8DA2F5DC4E23D31",
+      "lastModified": "2022-05-06T12:41:40+00:00",
+      "lease": {
+        "duration": null,
+        "state": "available",
+        "status": "unlocked"
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": null,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  },
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": null,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_1_35_2.tar",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 940539392,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:36+00:00",
+      "deletedTime": null,
+      "etag": "0x8DA2F5DC241DE8B",
+      "lastModified": "2022-05-06T12:41:36+00:00",
+      "lease": {
+        "duration": null,
+        "state": "available",
+        "status": "unlocked"
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": null,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  },
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": null,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_36_41_1.tar",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 201757696,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:40+00:00",
+      "deletedTime": null,
+      "etag": "0x8DA2F5DC4B0D44C",
+      "lastModified": "2022-05-06T12:41:40+00:00",
+      "lease": {
+        "duration": null,
+        "state": "available",
+        "status": "unlocked"
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": null,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  },
+  {
+    "container": "chbkcontainer",
+    "content": "",
+    "deleted": null,
+    "encryptedMetadata": null,
+    "encryptionKeySha256": null,
+    "encryptionScope": null,
+    "hasLegalHold": null,
+    "hasVersionsOnly": null,
+    "immutabilityPolicy": {
+      "expiryTime": null,
+      "policyMode": null
+    },
+    "isAppendBlobSealed": null,
+    "isCurrentVersion": null,
+    "lastAccessedOn": null,
+    "metadata": {},
+    "name": "https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_42_42_0.tar",
+    "objectReplicationDestinationPolicy": null,
+    "objectReplicationSourceProperties": [],
+    "properties": {
+      "appendBlobCommittedBlockCount": null,
+      "blobTier": "Hot",
+      "blobTierChangeTime": null,
+      "blobTierInferred": true,
+      "blobType": "BlockBlob",
+      "contentLength": 8671232,
+      "contentRange": null,
+      "contentSettings": {
+        "cacheControl": null,
+        "contentDisposition": null,
+        "contentEncoding": null,
+        "contentLanguage": null,
+        "contentMd5": null,
+        "contentType": "application/octet-stream"
+      },
+      "copy": {
+        "completionTime": null,
+        "destinationSnapshot": null,
+        "id": null,
+        "incrementalCopy": null,
+        "progress": null,
+        "source": null,
+        "status": null,
+        "statusDescription": null
+      },
+      "creationTime": "2022-05-06T12:41:40+00:00",
+      "deletedTime": null,
+      "etag": "0x8DA2F5DC4DEE251",
+      "lastModified": "2022-05-06T12:41:40+00:00",
+      "lease": {
+        "duration": null,
+        "state": "available",
+        "status": "unlocked"
+      },
+      "pageBlobSequenceNumber": null,
+      "pageRanges": null,
+      "rehydrationStatus": null,
+      "remainingRetentionDays": null,
+      "serverEncrypted": true
+    },
+    "rehydratePriority": null,
+    "requestServerEncrypted": null,
+    "snapshot": null,
+    "tagCount": null,
+    "tags": null,
+    "versionId": null
+  }
+]
+\end{minted}
+
+Listing undeleted Blobs in \texttt{clickhouse-backup}:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list remote --config config.yaml
+# 2022/05/07 12:26:27.136458  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022-05-06T12-41-19   1.07GiB   06/05/2022 12:41:40   remote      tar
+\end{minted}
+
+Restoring the database from the undeleted remote backup:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup restore_remote 2022-05-06T12-41-19 --config config.yaml
+# 2022/05/07 12:30:32.003711  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/07 12:30:32.007101  info SELECT * FROM system.disks;
+# 2022/05/07 12:30:32.018499  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022/05/07 12:30:32.094614  info done                      backup=2022-05-06T12-41-19 duration=7ms operation=download size=765B table_metadata=default.cell_towers
+# 2022/05/07 12:30:51.137543  info done                      diff_parts=0 duration=0s operation=downloadDiffParts100.00% 0s
+# 2022/05/07 12:30:51.137700  info done                      backup=2022-05-06T12-41-19 duration=19.043s operation=download_data size=1.07GiB table=default.cell_towers
+# 2022/05/07 12:30:51.146800  info done                      backup=2022-05-06T12-41-19 duration=19.135s operation=download size=1.07GiB
+# 2022/05/07 12:30:52.193726  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/07 12:30:53.438041  info SELECT * FROM system.disks;
+# 2022/05/07 12:30:53.441231  info CREATE DATABASE IF NOT EXISTS default
+# ENGINE = Atomic
+# 2022/05/07 12:30:53.458792  info SELECT engine FROM system.databases WHERE name = 'default'
+# 2022/05/07 12:30:53.483831  info DROP TABLE IF EXISTS `default`.`cell_towers` NO DELAY
+# 2022/05/07 12:30:53.509936  info CREATE DATABASE IF NOT EXISTS `default`
+# 2022/05/07 12:30:53.517094  info CREATE TABLE default.cell_towers UUID 'f9b9b44f-3af6-4bf5-9458-9ef6a81a3519' (`radio` Enum8('' = 0, 'CDMA' = 1, 'GSM' = 2, 'LTE' = 3, 'NR' = 4, 'UMTS' = 5), `mcc` UInt16, `net` UInt16, `area` UInt16, `cell` UInt64, `unit` Int16, `lon` Float64, `lat` Float64, `range` UInt32, `samples` UInt32, `changeable` UInt8, `created` DateTime, `updated` DateTime, `averageSignal` UInt8) ENGINE = MergeTree ORDER BY (radio, mcc, net, created) SETTINGS index_granularity = 8192
+# 2022/05/07 12:30:53.764502  info SELECT count() FROM system.settings WHERE name = 'show_table_uuid_in_table_create_query_if_not_nil'
+# 2022/05/07 12:30:53.771475  info SELECT name FROM system.databases WHERE engine IN ('MySQL','PostgreSQL')
+# 2022/05/07 12:30:53.780565  info
+# 		SELECT
+# 			countIf(name='data_path') is_data_path_present,
+# 			countIf(name='data_paths') is_data_paths_present,
+# 			countIf(name='uuid') is_uuid_present,
+# 			countIf(name='create_table_query') is_create_table_query_present,
+# 			countIf(name='total_bytes') is_total_bytes_present
+# 		FROM system.columns WHERE database='system' AND table='tables'
+#
+# 2022/05/07 12:30:53.791797  info SELECT database, name, engine , data_paths , uuid , create_table_query , coalesce(total_bytes, 0) AS total_bytes   FROM system.tables WHERE is_temporary = 0 SETTINGS show_table_uuid_in_table_create_query_if_not_nil=1
+# 2022/05/07 12:30:53.816765  info SELECT sum(bytes_on_disk) as size FROM system.parts WHERE database='default' AND table='cell_towers' GROUP BY database, table
+# 2022/05/07 12:30:53.832002  info ALTER TABLE `default`.`cell_towers` ATTACH PART 'all_1_35_2'
+# 2022/05/07 12:30:53.844536  info ALTER TABLE `default`.`cell_towers` ATTACH PART 'all_36_41_1'
+# 2022/05/07 12:30:53.849068  info ALTER TABLE `default`.`cell_towers` ATTACH PART 'all_42_42_0'
+# 2022/05/07 12:30:53.852548  info done                      backup=2022-05-06T12-41-19 operation=restore table=default.cell_towers
+# 2022/05/07 12:30:53.852691  info done                      backup=2022-05-06T12-41-19 duration=94ms operation=restore
+# 2022/05/07 12:30:53.852822  info done                      backup=2022-05-06T12-41-19 operation=restore
+\end{minted}
+
+The test queries were repeated in \texttt{clickhouse-client}.
+The queries were hanging at first, so the VM was restarted.
+Both were successful.
+
+Test query 1:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    radio,
+    count() AS c
+FROM cell_towers
+GROUP BY radio
+ORDER BY c DESC
+FORMAT TabSeparated
+
+-- Query id: 4d363e44-943b-47c0-b926-abd323e4dd59
+--
+-- UMTS	20686487
+-- LTE	12101148
+-- GSM	9931312
+-- CDMA	556344
+-- NR	867
+--
+-- 5 rows in set. Elapsed: 0.055 sec. Processed 43.28 million rows, 43.28 MB (781.15 million rows/s., 781.15 MB/s.)
+\end{minted}
+
+Test query 2:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    mcc,
+    count()
+FROM cell_towers
+GROUP BY mcc
+ORDER BY count() DESC
+LIMIT 10
+FORMAT TabSeparated
+
+-- Query id: ca9261f1-bb07-44f1-b83d-c95aab614203
+--
+-- 310	5024650
+-- 262	2622423
+-- 250	1953176
+-- 208	1891187
+-- 724	1836150
+-- 404	1729151
+-- 234	1618924
+-- 510	1353998
+-- 440	1343355
+-- 311	1332798
+--
+-- 10 rows in set. Elapsed: 0.197 sec. Processed 43.28 million rows, 86.55 MB (220.03 million rows/s., 440.05 MB/s.)
+\end{minted}

@@ -1,0 +1,71 @@
+\chapter{Conclusion}
+
+\section{Summary}
+In our thesis we asked two research questions. What are some best practices for securing backups against ransomware and other malware, how can they be implemented in Azure, and are these security mechanisms effective against a modern ransomware attack? 
+
+We have described the threat that modern ransomware poses, and some ways in which the security of a backup architecture can be breached. Based on this, we showed how a backup architecture in the cloud was likely to be attacked with three different scenarios. These scenarios each had a number of experiments which examined the capabilities of the different backup solutions. On a larger scale these experiments provided insight into what some best practices for securing backups against ransomware could be in Azure.
+
+The backup solutions we analyzed secured an unmanaged ClickHouse database running in an Azure VM, and a managed PostgreSQL database hosted in Azure. Our analysis was largely focused on a qualitative analysis of the security features available for these backup solutions, as well as requirements like cost, performance and ease-of-use. 
+
+Our findings showed that Azure is a platform in continuous development with many services further in their development lifecycle than others. This was evident when comparing the backup solutions available for each of the databases where the effectiveness of the security mechanisms varied considerably. 
+
+One of our main takeaways was the importance of features such as multi-user authorization in conjunction with role-based access control to ensure elimination of single points of failure, or soft delete-functionality to hinder data loss due to unauthorized deletions. Where these features were missing, workarounds could be designed to achieve some degree of the same security. Our results show that Azure’s security mechanisms are effective against a modern ransomware attack, given that they are implemented correctly. 
+
+
+%Importance of having read-only backup.
+% We focused on compromised backup administrator
+%separating privilges, eliminating SPOF. RBAC, in conjunction with MUA, is secure.
+%Soft delete, important feature lacking in Backup vault. Noticable that under development
+%Evaluate to be secure, though some solutions need more careful implementation to be as secure as others out-of-the box.
+
+% Our review was largely focused on a qualitative analysis of the security features available for these backup solutions, as well as requirements like cost and performance. 
+
+
+%By performing experiments based on these scenarios, we learned more about the backup solutions, and discovered strengths and weaknesses of each solution. We also looked at how certain best practices could be followed for the backup solutions. Most were a direct implementation of more general security best practices meant to reduce the exploitation of security holes one unfortunately might see due to faulty implementation or a process lacking in attention to detail. Among our suggestions were the way one should configure a managed instance to combine PITR with Backup Vault for a comprehensive backup architecture.  Additionally, we suggested and in some scale implemented a monitoring system meant to give a system admin the upper hand through an early warning when an attack scenario is initiated. Further, we suggested implementing role-based access control in such a way as to reduce the attack surface when a user with privileges is compromised.
+
+%Finally, we reviewed each backup solution's resistance to ransomware, performance, cost and ease of use of the given backup solutions. This helped us paint a holistic picture of the solution and review them in a larger sense so as to ease the decision-making process of any party looking to back up their data with Azure technologies.
+
+% Hva prøvde vi å finne ut? Hva var RQs? Hva er svaret?
+        % Ulike tjenester har forskjellig støtte kinda
+        %Forskjell på forskjellige typer vaults.
+% Oppsummere det vi har gjort?
+    % Undersøkt best practices etc (teori)
+    % Scenarioer og eksperimenter for å svare på RQs
+    % Analyse av diverse kriterier (inkludert ting som ikke har med sikkerhet å gjøre,
+    %    men som kan være nyttige for en bedrift)
+    % Helhetlig konklusjon om hva vi anbefaler
+
+
+%Clearly state the answer to the main research question.
+%which are:
+
+% 1.What are some best practices for securing backups against ransomware and other malware, and how can they be implemented in Azure?
+
+% 2. Are Azure’s security mechanisms effective against a modern ransomware attack?
+
+%Summarize and reflect on the research.
+%Show what new knowledge you have contributed.
+
+\section{Future developments}
+Security features are constantly in development, as shown in this thesis. The same is true for malware development. Malicious actors are always exploring new ways to exploit vulnerabilities and attempt to profit. The ransomware of today is the way it is because our architectures are designed with traditional server technology, and when that changes, so will the malware.
+
+We can't predict the future, but as the world moves towards managed services hosted on cloud platforms, malware will follow. The same security principles will remain true, but the implementation differs. While it was hard for us to see how ransomware could attack a managed database, malicious actors are without a doubt exploring how to threaten those services as well. 
+
+Future work in this field must keep working to ensure security before malicious actors have a chance to profit.
+
+%elns
+
+
+%Attacks on managed services
+%Multi-cloud architecture
+%Performance for max RTO. Tweaking double encryption, flexible server configuration etc.
+
+
+\section{Greater context}
+This thesis only looks at a small section of the security controls that an organisation need to implement in order to keep their data secure. We described backups as the last line of defense, and that means they should hopefully never be needed, and the guard should not be lowered even if a secure backup solution is implemented. Other security controls must ensure that.
+
+These security controls include the culture in the organisation, to make sure that employees and personnel maintain a security-focused mindset at all times. As explored in this thesis, human error is a major vulnerability, and much of that can be lowered by working with the people that use the systems every day.
+
+Another important aspect is the other security controls in place. Even if the backups are secure, the data in production systems must remain secure as well. The computer systems of an organisation are still targets of attacks even if they do not have neither sensitive data or access to backups. 
+
+Secure backup solutions are important, but they are not the whole picture. This thesis considers only one part of the puzzle, one link in the chain. Malicious actors will no doubt stretch the chain to look for the weakest link. The entire system must therefore be secure. 

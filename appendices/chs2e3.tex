@@ -1,0 +1,77 @@
+\section{Delete backups stored in Azure blob storage via Azure CLI}
+\label{app:chs2e3}
+This experiment is similar to the previous one (\ref{app:chs2e2}),
+except that the blobs were deleted via the Azure CLI,
+instead of using \texttt{clickhouse-backup}.
+Afterwards, the Blobs were restored.
+
+\subsection{Preparation}
+\label{sec:org4d48e1c}
+The following variables were declared:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+$AccKey = "NdbW07WlHBf5zcpMXundwkP88Ie2SO1Ad+84VD8moaUg1ihIeRR7cEdy4FXIgHRvIQwPIMc7eD2q+ASt6EqxWg==" # Storage Account Access Key
+$StorageAccount = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $SAName} # clickhouse-backup storage account
+\end{minted}
+
+\subsection{Delete the blobs}
+\label{sec:orge72cc5d}
+Listing the blobs in Azure Cloud Shell:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage blob list --account-name $SAName --container-name $ContainerName --account-key $AccKey | ConvertFrom-Json -AsHashtable | % {$_.name}
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata.json
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata/default/cell_towers.json
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_1_35_2.tar
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_36_41_1.tar
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_42_42_0.tar
+\end{minted}
+
+Deleting the blobs:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Store the list of blob names in a variable
+$BlobNames = az storage blob list --account-name $SAName --container-name $ContainerName --account-key $AccKey | ConvertFrom-Json -AsHashtable | % {$_.name}
+
+foreach($name in $BlobNames) {
+    echo "Deleting $name"
+    az storage blob delete --account-name $SAName --account-key $AccKey --container-name $ContainerName --name $name
+}
+# Deleting https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata.json
+# Deleting https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata/default/cell_towers.json
+# Deleting https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_1_35_2.tar
+# Deleting https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_36_41_1.tar
+# Deleting https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_42_42_0.tar
+\end{minted}
+
+After this, the blobs were no longer visible in the Azure portal (unless ``Show deleted blobs'' was enabled).
+We decided to also verify this via \texttt{clickhouse-backup}.
+
+Trying to list the blobs via \texttt{clickhouse-backup} (no result):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list remote --config config.yaml
+# 2022/05/07 12:54:09.423781  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+\end{minted}
+
+\subsection{Restore the blobs}
+\label{sec:org9a5b383}
+The process for restoring blobs is the same as in section \ref{sec:org3630c7e}.
+
+Script to undelete deleted blobs:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# List all blobs and retrieve deleted blobs from list
+$Blobs = az storage blob list --account-name $SAName --container-name $ContainerName --account-key $AccKey --include d | ConvertFrom-Json -AsHashtable
+$DeletedBlobs = $($Blobs | Where-Object { $_.deleted })
+
+# Undelete deleted blobs
+foreach($Blob in $DeletedBlobs) {
+    az storage blob undelete --container-name $ContainerName --name $Blob.name --account-key $AccKey --account-name $SAName
+}
+\end{minted}
+
+Listing the blobs:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage blob list --account-name $SAName --container-name $ContainerName --account-key $AccKey | ConvertFrom-Json -AsHashtable | % {$_.name}
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata.json
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/metadata/default/cell_towers.json
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_1_35_2.tar
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_36_41_1.tar
+# https:/chbksa.blob.core.windows.net/chbkcontainer/2022-05-06T12-41-19/shadow/default/cell_towers/default_all_42_42_0.tar
+\end{minted}

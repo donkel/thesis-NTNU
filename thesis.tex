@@ -1,10 +1,16 @@
-\documentclass[british,titlepage]{ntnuthesis}
+%\documentclass[american,titlepage]{ntnuthesis}        % with extra blank pages
+\documentclass[american,titlepage,oneside]{ntnuthesis} % without extra blank pages
 
-\title{An NTNU Thesis \LaTeX{} Document Class}
-\shorttitle{An NTNU Thesis Document Class}
-\author{Community of Practice in Computer Science Education at NTNU}
-\shortauthor{CoPCSE$@$NTNU}
-\date{CC-BY \ntnuthesisdate}
+% Used to make verbatim environment wrap lines
+\usepackage{minted}
+\usepackage{graphicx}
+
+
+\title{Backup Architecture Resistant to Ransomware Attacks}
+\shorttitle{Ransomware-Resistant Backup}
+\author{Torstein Martinsheimen Egge \and Åsmund Hunderi Stemland  \and Omer Jonuzi}
+\shortauthor{T. M. Egge \and O. Jonuzi \and Å. H. Stemland}
+\date{\today} 
 
 \addbibresource{thesis.bib}
 
@@ -12,21 +18,25 @@
 
 \begin{document}
 
-\input{chapters/0a-abstract.tex}
-\input{chapters/0b-sammendrag.tex}
+\input{chapters/0a - abstract}
+\input{chapters/0b - sammendrag}
 
 \tableofcontents
 \listoffigures
-\listoftables
-\lstlistoflistings
+% \listoftables
+% \lstlistoflistings %commented out since we don't have any listings large enough to include at the start
 
 \printglossary[type=\acronymtype] % Print acronyms
 \printglossary                    % Print glossary
 
-\input{chapters/1-introduction}
-\input{chapters/2-usage.tex}
-\input{chapters/3-structure.tex}
-\input{chapters/4-conclusion.tex}
+\input{chapters/0c - foreword}
+\input{chapters/1 - introduction}
+\input{chapters/2 - theory}
+\input{chapters/3 - method}
+\input{chapters/4 - results}
+\input{chapters/5 - discussion}
+\input{chapters/6 - conclusion}
+% \input{chapters/scenarios}
 
 \chapter*{\bibname}
 \printbibliography[heading=none]
@@ -34,6 +44,29 @@
 \input{chapters/papers.tex}
 
 \appendix
+
 \input{appendices/a-appendix.tex}
+ \input{appendices/clickhouse-non-perf}
+ \input{appendices/clickhouse-perf}
+ \input{appendices/chab-perf}
+ \input{appendices/chbk-perf}
+ \input{appendices/chs1e1}
+ \input{appendices/chs2e1}
+ \input{appendices/chs2e2}
+ \input{appendices/chs2e3}
+ \input{appendices/chs2e4}
+ \input{appendices/chs3e1}
+ \input{appendices/chs3e2}
+ \input{appendices/chs3e3}
+ \input{appendices/pg_restore1}
+ \input{appendices/pg_restore2}
+ \input{appendices/pg_setup}
+ \input{appendices/pg_s1e1}
+ \input{appendices/pg_s1e2}
+ \input{appendices/pg_s2e1}
+ \input{appendices/pg_s2e2}
+% \input{appendices/pg_s2e3} %Don't think this is needed. It is simply "deleting backup data" Unless we have documentation of it??
+
+
 
 \end{document}

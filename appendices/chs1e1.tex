@@ -1,0 +1,876 @@
+\section{Encrypt ClickHouse and recover from backup} \label{app:chs1e1}
+In this experiment, we install \texttt{ccrypt} (an encryption tool)
+in order to encrypt database files and observe the results.
+Afterwards, we recover the VM using \texttt{clickhouse-backup} and Azure Backup respectively.
+We attempted to encrypt a single file, as well as an entire directory.
+
+This experiment has two main objectives.
+One is to encrypt data files used by ClickHouse and observe the results.
+How will database queries be affected?
+Is it possible to detect a ransomware that encrypts ClickHouse's data files?
+The other objective is to recover the database after the files have been encrypted.
+The goal is to learn how to configure and use both \texttt{clickhouse-backup} and Azure Backup,
+as well as evaluating their usability.
+
+\subsection{Procedure}
+\label{sec:org8373240}
+Files were encrypted by using the tool \texttt{ccrypt}
+with an empty passphrase (example: \texttt{ccrypt -e filename}).
+
+SQL queries were run as \texttt{azureuser} (the default, non-root user) via \texttt{clickhouse-client}.
+
+Bash commands were also run as \texttt{azureuser}.
+Commands were run in \path{/home/azureuser} unless specified otherwise.
+
+The output of commands and queries are shown in comments (\texttt{\#} for bash and PowerShell, \texttt{-{}-} for SQL) beneath the command or query.
+Comments used to explain what a command does are placed above the command.
+The variables from \ref{app:ch-non-perf} need to be declared in order for many commands to work.
+
+\subsection{Determine which files to encrypt}
+\label{sec:orge561d86}
+Before we could encrypt files, we had to find out which files to encrypt.
+
+In order to find out where table data is stored,
+the path to the \texttt{cell\_towers} table was fetched from \texttt{system.parts},
+which, as the name suggests, contains the parts of a database table
+(when using the MergeTree database engine).
+A descripton of \texttt{system.parts} can be found in the ClickHouse documentation.
+\cite{noauthor_parts_nodate}
+% [PartsClickHouseDocs] 
+
+Query to fetch path of the \texttt{cell\_towers} table:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    table,
+    disk_name,
+    path
+FROM system.parts
+WHERE table = 'cell_towers'
+FORMAT TabSeparated
+
+-- cell_towers     default /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2/
+-- cell_towers     default /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_36_41_1/
+-- cell_towers     default /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_42_42_0/
+\end{minted}
+
+We navigated to the first path listed and printed the contents of the directory (performed as root):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+cd /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2/
+ls
+
+# area.bin            cell.mrk2        count.txt                      lat.mrk2  net.bin        range.bin     unit.mrk2
+# area.mrk2           changeable.bin   created.bin                    lon.bin   net.mrk2       range.mrk2    updated.bin
+# averageSignal.bin   changeable.mrk2  created.mrk2                   lon.mrk2  primary.idx    samples.bin   updated.mrk2
+# averageSignal.mrk2  checksums.txt    default_compression_codec.txt  mcc.bin   radio.bin.cpt  samples.mrk2
+# cell.bin            columns.txt      lat.bin                        mcc.mrk2  radio.mrk2     unit.bin
+\end{minted}
+
+In order to determine which files corresponded to columns in the table,
+we used \texttt{DESCRIBE TABLE} to display the columns.
+
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+DESCRIBE TABLE cell_towers
+FORMAT TabSeparated
+
+-- radio   Enum8(\'\' = 0, \'CDMA\' = 1, \'GSM\' = 2, \'LTE\' = 3, \'NR\' = 4, \'UMTS\' = 5)
+-- mcc     UInt16
+-- net     UInt16
+-- area    UInt16
+-- cell    UInt64
+-- unit    Int16
+-- lon     Float64
+-- lat     Float64
+-- range   UInt32
+-- samples UInt32
+-- changeable      UInt8
+-- created DateTime
+-- updated DateTime
+-- averageSignal   UInt8
+\end{minted}
+
+Some of the column names displayed matched the names of files in the directory.
+We made an educated guess that \texttt{.bin} files are the actual data files.
+A quick Google search indicates that \texttt{.mrk2} files are related to the indexing of the database.
+
+We decided to encrypt the file \texttt{radio.bin},
+since the \texttt{radio} column is used in one of the test queries we will use.
+
+\subsection{Install \texttt{ccrypt}}
+\label{sec:orga964650}
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo apt install ccrypt
+\end{minted}
+\subsection{Perform test queries}
+\label{sec:org0e389d8}
+In order to see how encryption would affect the database,
+we first performed two test queries and noted the results.
+The queries are the same as the ones used in the \ref{app:ch-non-perf}.
+
+Test query 1:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    radio,
+    count() AS c
+FROM cell_towers
+GROUP BY radio
+ORDER BY c DESC
+FORMAT TabSeparated
+
+-- UMTS 20686487
+-- LTE  12101148
+-- GSM  9931312
+-- CDMA 556344
+-- NR   867
+\end{minted}
+
+Test query 2:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    mcc,
+    count()
+FROM cell_towers
+GROUP BY mcc
+ORDER BY count() DESC
+LIMIT 10
+FORMAT TabSeparated
+
+-- 310  5024650
+-- 262  2622423
+-- 250  1953176
+-- 208  1891187
+-- 724  1836150
+-- 404  1729151
+-- 234  1618924
+-- 510  1353998
+-- 440  1343355
+-- 311  1332798
+\end{minted}
+\subsection{Encrypt file and repeat test queries}
+\label{sec:orgec4825e}
+Navigate to directory and encrypt \texttt{radio.bin} (performed as root):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+cd /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2
+ccrypt -e radio.bin
+\end{minted}
+
+The test queries from earlier were repeated in \texttt{clickhouse-client}.
+The first test query, which selects data from the \texttt{radio} table fails,
+because the file \texttt{radio.bin}, which contains a part of the table used
+for the query, is encrypted.
+
+Query using \texttt{radio}, which fails because \texttt{radio.bin} is encrypted:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    radio,
+    count() AS c
+FROM cell_towers
+GROUP BY radio
+ORDER BY c DESC
+FORMAT TabSeparated
+
+-- Received exception from server (version 22.4.3):
+-- Code: 107. DB::Exception: Received from localhost:9000. DB::Exception: Cannot open file /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2/radio.bin, errno: 2, strerror: No such file or directory: While executing MergeTreeInOrder. (FILE_DOESNT_EXIST)
+\end{minted}
+
+The other test query, which does not use the \texttt{radio} table succeeds:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    mcc,
+    count()
+FROM cell_towers
+GROUP BY mcc
+ORDER BY count() DESC
+LIMIT 10
+FORMAT TabSeparated
+
+-- 310  5024650
+-- 262  2622423
+-- 250  1953176
+-- 208  1891187
+-- 724  1836150
+-- 404  1729151
+-- 234  1618924
+-- 510  1353998
+-- 440  1343355
+-- 311  1332798
+\end{minted}
+\subsection{Decrypt file and repeat test query}
+\label{sec:org164be71}
+The file \texttt{radio.bin.cpt} (the encrypted version of \texttt{radio.bin}) was decrypted
+with \texttt{ccrypt -d radio.bin.cpt},
+and the test queries were repeated.
+After decrypting the file, both queries succeeded.
+
+First test query repeated after \texttt{radio.bin.cpt} was decrypted:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    radio,
+    count() AS c
+FROM cell_towers
+GROUP BY radio
+ORDER BY c DESC
+FORMAT TabSeparated
+
+-- UMTS 20686487
+-- LTE  12101148
+-- GSM  9931312
+-- CDMA 556344
+-- NR   867
+\end{minted}
+
+Second test query repeated after \texttt{radio.bin.cpt} was decrypted:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    mcc,
+    count()
+FROM cell_towers
+GROUP BY mcc
+ORDER BY count() DESC
+LIMIT 10
+FORMAT TabSeparated
+
+-- 310 5024650
+-- 262 2622423
+-- 250 1953176
+-- 208 1891187
+-- 724 1836150
+-- 404 1729151
+-- 234 1618924
+-- 510 1353998
+-- 440 1343355
+-- 311 1332798
+\end{minted}
+
+\subsection{Encrypt all files in \texttt{/var/lib/clickhouse/store} and repeat test queries}
+\label{sec:orgb28ee20}
+In order to simulate a ransomware attack
+where the attacker doesn't encrypt specific files one-by-one,
+but instead encrypts the entire data directory automatically,
+we encrypted the directory which stores the data parts for (non-system) ClickHouse tables.
+
+Files in the directory \path{/var/lib/clickhouse/store},
+were encrypted recursively (\texttt{-r}) using \texttt{ccrypt}.
+The \texttt{-f} (force) flag makes \texttt{ccrypt} encrypt write-protected files without asking for confirmation.
+
+Encrypting \texttt{store} (performed as root):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+ccrypt -erf store
+
+-- Enter encryption key:
+-- Enter encryption key: (repeat)
+-- ccrypt: store/063/0638116a-3105-483f-a2e5-55287d4eaa27/202204_2295_2350_15: No such file or directory
+-- ccrypt: store/063/0638116a-3105-483f-a2e5-55287d4eaa27/202204_2355_2355_0: No such file or directory
+-- ccrypt: store/063/0638116a-3105-483f-a2e5-55287d4eaa27/202204_2351_2351_0: No such file or directory
+-- ccrypt: store/11f/11fafbd1-2c3f-4621-a574-b4f7b5594988/202204_2794_2794_0: No such file or directory
+-- ccrypt: store/11f/11fafbd1-2c3f-4621-a574-b4f7b5594988/202204_2140_2793_477: No such file or directory
+\end{minted}
+
+The contents of one of the encryted directories (performed as root):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+ls -l /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2
+
+# Result:
+# total 918640
+# -rw-r----- 1 clickhouse clickhouse  41208741 Apr 26 13:09 area.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 area.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse    163548 Apr 26 13:09 averageSignal.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 averageSignal.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse 157679630 Apr 26 13:09 cell.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 cell.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse    163548 Apr 26 13:09 changeable.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 changeable.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse      1183 Apr 26 13:09 checksums.txt.cpt
+# -rw-r----- 1 clickhouse clickhouse       354 Apr 26 13:09 columns.txt.cpt
+# -rw-r----- 1 clickhouse clickhouse        40 Apr 26 13:09 count.txt.cpt
+# -rw-r----- 1 clickhouse clickhouse  65728056 Apr 26 13:09 created.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 created.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse        42 Apr 26 13:09 default_compression_codec.txt.cpt
+# -rw-r----- 1 clickhouse clickhouse 224774675 Apr 26 13:09 lat.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 lat.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse 227815661 Apr 26 13:09 lon.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 lon.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse    331043 Apr 26 13:09 mcc.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 mcc.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse    345344 Apr 26 13:09 net.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 net.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse     40361 Apr 26 13:09 primary.idx.cpt
+# -rw-r----- 1 clickhouse clickhouse    163563 Apr 26 13:09 radio.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 radio.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse  41566798 Apr 26 13:09 range.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 range.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse  66713118 Apr 26 13:09 samples.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 samples.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse   1331731 Apr 26 13:09 unit.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 unit.mrk2.cpt
+# -rw-r----- 1 clickhouse clickhouse 110977534 Apr 26 13:09 updated.bin.cpt
+# -rw-r----- 1 clickhouse clickhouse    107576 Apr 26 13:09 updated.mrk2.cpt
+\end{minted}
+
+Then the test queries were repeated.
+
+Test query 1 fails:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    mcc,
+    count()
+FROM cell_towers
+GROUP BY mcc
+ORDER BY count() DESC
+LIMIT 10
+FORMAT TabSeparated
+
+-- Query id: 6d32968b-85bb-4059-9119-ae76a84b8c13
+--
+-- 0 rows in set. Elapsed: 0.023 sec.
+--
+-- Received exception from server (version 22.4.3):
+-- Code: 107. DB::Exception: Received from localhost:9000. DB::Exception: Cannot open file /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2/mcc.bin, errno: 2, strerror: No such file or directory: While executing MergeTreeInOrder. (FILE_DOESNT_EXIST)
+\end{minted}
+
+Test query 2 also fails:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    radio,
+    count() AS c
+FROM cell_towers
+GROUP BY radio
+ORDER BY c DESC
+FORMAT TabSeparated
+
+-- Query id: 8c913fd5-b0db-4cc2-b176-f389886c3bce
+--
+-- 0 rows in set. Elapsed: 0.003 sec.
+--
+-- Received exception from server (version 22.4.3):
+-- Code: 107. DB::Exception: Received from localhost:9000. DB::Exception: Cannot open file /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2/radio.bin, errno: 2, strerror: No such file or directory: While executing MergeTreeInOrder. (FILE_DOESNT_EXIST)
+\end{minted}
+
+Selecting all columns fails:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT *
+FROM cell_towers
+LIMIT 10
+
+-- Query id: 7a96d377-2f5b-4439-96d6-eb554b21fea7
+--
+-- 0 rows in set. Elapsed: 0.003 sec.
+--
+-- Received exception from server (version 22.4.3):
+-- Code: 107. DB::Exception: Received from localhost:9000. DB::Exception: Cannot open file /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2/radio.bin, errno: 2, strerror: No such file or directory: While executing MergeTreeInOrder. (FILE_DOESNT_EXIST)
+\end{minted}
+
+Selecting any single column seems to fail:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT updated
+FROM cell_towers
+LIMIT 10
+
+-- Query id: c983d27d-144d-4296-adb3-ade5ebba3777
+--
+--
+-- 0 rows in set. Elapsed: 0.002 sec.
+--
+-- Received exception from server (version 22.4.3):
+-- Code: 107. DB::Exception: Received from localhost:9000. DB::Exception: Cannot open file /var/lib/clickhouse/store/c28/c283470d-9ab3-4be8-bd81-132274c9f9b0/all_1_35_2/updated.bin, errno: 2, strerror: No such file or directory: While executing MergeTreeInOrder. (FILE_DOESNT_EXIST)
+\end{minted}
+
+\subsection{Rebuild VM and try to recover}
+\label{sec:orgeb16138}
+\subsubsection{Delete VM}
+\label{sec:orga4a9443}
+Script to delete the VM and accociated resources (run in Azure Cloud Shell):
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Delete the VM
+az vm delete --name $CHName --resource-group $RGName --yes
+
+# Get all resources in resource group
+$resources = az resource list --resource-group $RGName | ConvertFrom-Json -AsHashtable
+
+# Fetch only the ids of resources with names containing "clickhouse".
+# The VM was named "clickhouseVM", which is why this works.
+# If the VM had a different name, we would have to grep for something else.
+$filtered = foreach($r in $resources) {
+    Write-Output $r["id"] | grep clickhouse
+}
+
+# Delete the resources
+$filtered | % {Remove-AzResource -ResourceId $_ -Force}
+$filtered | % {Remove-AzResource -ResourceId $_ -Force}
+\end{minted}
+
+The last command had to be run twice,
+because some resources could not be deleted while other resources depended on them.
+Repeating the command had the effect of deleting ``child'' resources first,
+so that ``parent'' resources could be deleted.
+
+\subsubsection{Set up VM according to test environment setup}
+\label{sec:orge14ae6f}
+Outputs were skipped for the sake of brevity.
+Everything went as planned.
+
+Create VM (run from cloud shell):
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az vm create `
+    --resource-group $RGName `
+    --name $CHName `
+    --image Canonical:UbuntuServer:16.04-LTS:16.04.202109280 `
+    --admin-username azureuser `
+    --size Standard_B1s `
+    --ssh-key-values $SSHPath `
+    --public-ip-sku Standard
+\end{minted}
+
+Install clickhouse (run from bash in VM):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo apt-get install -y apt-transport-https ca-certificates dirmngr
+sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 8919F6BD2B48D754
+
+echo "deb https://packages.clickhouse.com/deb stable main" | sudo tee \
+    /etc/apt/sources.list.d/clickhouse.list
+sudo apt-get update
+
+sudo apt-get install -y clickhouse-server clickhouse-client
+
+sudo service clickhouse-server start
+\end{minted}
+
+Install clickhouse-backup (run from bash in VM):
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+# Download archive containing binary
+wget https://github.com/AlexAkulov/clickhouse-backup/releases/download/v1.3.2/clickhouse-backup-linux-amd64.tar.gz
+
+# Decompress archive
+tar -zxvf clickhouse-backup-linux-amd64.tar.gz
+
+# Move binary to home directory
+mv build/linux/amd64/clickhouse-backup ~
+
+# Cleanup
+rmdir -p build/linux/amd64
+rm clickhouse-backup-linux-amd64.tar.gz
+\end{minted}
+
+The \texttt{clickhouse-backup} config file was copied from
+the test environment setup (see \ref{app:ch-non-perf})
+and saved as \path{~/config.yaml}.
+
+\subsubsection{Restore from remote backup}
+\label{sec:org8a05b22}
+Commands were run from bash on the VM.
+
+List remote backups:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup list remote --config config.yaml
+
+# 2022/05/03 10:38:55.223041  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022-05-02T09-48-18   1.07GiB   02/05/2022 09:48:39   remote      tar
+\end{minted}
+
+Restore from the remote backup:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+sudo ./clickhouse-backup restore_remote 2022-05-02T09-48-18 --config config.yaml
+
+# 2022/05/03 10:40:28.403253  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/03 10:40:28.407883  info SELECT * FROM system.disks;
+# 2022/05/03 10:40:28.422520  info SELECT max(toInt64(bytes_on_disk * 1.02)) AS max_file_size FROM system.parts
+# 2022/05/03 10:40:28.512501  info done                      backup=2022-05-02T09-48-18 duration=10ms operation=download size=765B table_metadata=default.cell_towers
+# 2022/05/03 10:40:48.487522  info done                      diff_parts=0 duration=0s operation=downloadDiffParts===================================================================================================================] 100.00% 15s
+# 2022/05/03 10:40:49.252289  info done                      backup=2022-05-02T09-48-18 duration=20.739s operation=download_data size=1.07GiB table=default.cell_towers
+# 2022/05/03 10:40:49.269557  info done                      backup=2022-05-02T09-48-18 duration=20.855s operation=download size=1.07GiB
+# 2022/05/03 10:40:49.326168  info SELECT value FROM `system`.`build_options` where name='VERSION_INTEGER'
+# 2022/05/03 10:40:49.420143  info SELECT * FROM system.disks;
+# 2022/05/03 10:40:49.429084  info CREATE DATABASE IF NOT EXISTS default
+# ENGINE = Atomic
+# 2022/05/03 10:40:49.437031  info SELECT engine FROM system.databases WHERE name = 'default'
+# 2022/05/03 10:40:49.440420  info DROP TABLE IF EXISTS `default`.`cell_towers` NO DELAY
+# 2022/05/03 10:40:49.444862  info CREATE DATABASE IF NOT EXISTS `default`
+# 2022/05/03 10:40:49.448408  info CREATE TABLE default.cell_towers UUID 'f9b9b44f-3af6-4bf5-9458-9ef6a81a3519' (`radio` Enum8('' = 0, 'CDMA' = 1, 'GSM' = 2, 'LTE' = 3, 'NR' = 4, 'UMTS' = 5), `mcc` UInt16, `net` UInt16, `area` UInt16, `cell` UInt64, `unit` Int16, `lon` Float64, `lat` Float64, `range` UInt32, `samples` UInt32, `changeable` UInt8, `created` DateTime, `updated` DateTime, `averageSignal` UInt8) ENGINE = MergeTree ORDER BY (radio, mcc, net, created) SETTINGS index_granularity = 8192
+# 2022/05/03 10:40:49.498743  info SELECT count() FROM system.settings WHERE name = 'show_table_uuid_in_table_create_query_if_not_nil'
+# 2022/05/03 10:40:49.519183  info SELECT name FROM system.databases WHERE engine IN ('MySQL','PostgreSQL')
+# 2022/05/03 10:40:49.533985  info
+#                 SELECT
+#                         countIf(name='data_path') is_data_path_present,
+#                         countIf(name='data_paths') is_data_paths_present,
+#                         countIf(name='uuid') is_uuid_present,
+#                         countIf(name='create_table_query') is_create_table_query_present,
+#                         countIf(name='total_bytes') is_total_bytes_present
+#                 FROM system.columns WHERE database='system' AND table='tables'
+#
+# 2022/05/03 10:40:49.545657  info SELECT database, name, engine , data_paths , uuid , create_table_query , coalesce(total_bytes, 0) AS total_bytes   FROM system.tables WHERE is_temporary = 0 SETTINGS show_table_uuid_in_table_create_query_if_not_nil=1
+# 2022/05/03 10:40:49.566479  info SELECT sum(bytes_on_disk) as size FROM system.parts WHERE database='default' AND table='cell_towers' GROUP BY database, table
+# 2022/05/03 10:40:49.578319  info ALTER TABLE `default`.`cell_towers` ATTACH PART 'all_1_35_2'
+# 2022/05/03 10:40:49.589570  info ALTER TABLE `default`.`cell_towers` ATTACH PART 'all_36_41_1'
+# 2022/05/03 10:40:49.596540  info ALTER TABLE `default`.`cell_towers` ATTACH PART 'all_42_42_0'
+# 2022/05/03 10:40:49.601181  info done                      backup=2022-05-02T09-48-18 operation=restore table=default.cell_towers
+# 2022/05/03 10:40:49.601380  info done                      backup=2022-05-02T09-48-18 duration=109ms operation=restore
+# 2022/05/03 10:40:49.601555  info done                      backup=2022-05-02T09-48-18 operation=restore
+\end{minted}
+
+\subsubsection{Repeat test queries}
+\label{sec:org4f2f2e4}
+Test queries were run from \texttt{clickhouse-backup}
+and compared with earlier results to se if they were valid.
+Both queries returned valid results, indicating that the recovery was successful.
+
+At first, performance was very poor.
+Sometimes the queries would time out because they took too long (more than 300 seconds).
+After restarting the VM, queries were as fast as usual (0.072s and 0.2s respectively).
+
+Test query 1:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    radio,
+    count() AS c
+FROM cell_towers
+GROUP BY radio
+ORDER BY c DESC
+FORMAT TabSeparated
+
+-- Query id: fea063fa-98e6-4a99-b373-4f51d99be3c1
+--
+-- UMTS    20686487
+-- LTE     12101148
+-- GSM     9931312
+-- CDMA    556344
+-- NR      867
+\end{minted}
+
+Test query 2:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    mcc,
+    count()
+FROM cell_towers
+GROUP BY mcc
+ORDER BY count() DESC
+LIMIT 10
+FORMAT TabSeparated
+
+-- Query id: e4cd8484-7d4e-4e97-b78f-5373ed61c2b2
+--
+-- 310     5024650
+-- 262     2622423
+-- 250     1953176
+-- 208     1891187
+-- 724     1836150
+-- 404     1729151
+-- 234     1618924
+-- 510     1353998
+-- 440     1343355
+-- 311     1332798
+\end{minted}
+
+\subsection{Repeat encryption and recover database with Azure Backup}
+\label{sec:org2f39a38}
+\subsubsection{Encrypt \texttt{store} directory}
+\label{sec:org53cf4ea}
+Run as root in bash on the VM:
+\begin{minted}[breaklines=true,breakanywhere=true]{bash}
+ccrypt -erf /var/lib/clickhouse/store
+\end{minted}
+\subsubsection{Delete VM}
+\label{sec:org3c61e5e}
+Deleting the VM:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az vm delete --name $CHName --resource-group $RGName --yes
+\end{minted}
+
+When using Azure Backup via the Azure Portal to recover a VM,
+a virtual network and a subnet have to be provided.
+We assume the same holds true for recovering via the Azure CLI,
+even though no commands seem to be asking for the aforementioned resources (at least not directly).
+This is why we only deleted the VM, and not related resources like network cards and IP adresses as well.
+
+\subsubsection{Create a Storage Account}
+\label{sec:orgab49f59}
+In order to recover the VM, a storage account is required for staging the recovery.
+
+Creating a storage account:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az storage account create `
+    --name $StagingSAName `
+    --resource-group $RGName `
+    --location eastus `
+    --sku Standard_LRS
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "accessTier": "Hot",
+  "allowBlobPublicAccess": true,
+  "allowCrossTenantReplication": null,
+  "allowSharedKeyAccess": null,
+  "allowedCopyScope": null,
+  "azureFilesIdentityBasedAuthentication": null,
+  "blobRestoreStatus": null,
+  "creationTime": "2022-05-04T07:11:01.403417+00:00",
+  "customDomain": null,
+  "defaultToOAuthAuthentication": null,
+  "dnsEndpointType": null,
+  "enableHttpsTrafficOnly": true,
+  "enableNfsV3": null,
+  "encryption": {
+    "encryptionIdentity": null,
+    "keySource": "Microsoft.Storage",
+    "keyVaultProperties": null,
+    "requireInfrastructureEncryption": null,
+    "services": {
+      "blob": {
+        "enabled": true,
+        "keyType": "Account",
+        "lastEnabledTime": "2022-05-04T07:11:01.528489+00:00"
+      },
+      "file": {
+        "enabled": true,
+        "keyType": "Account",
+        "lastEnabledTime": "2022-05-04T07:11:01.528489+00:00"
+      },
+      "queue": null,
+      "table": null
+    }
+  },
+  "extendedLocation": null,
+  "failoverInProgress": null,
+  "geoReplicationStats": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Storage/storageAccounts/stagingchsa",
+  "identity": null,
+  "immutableStorageWithVersioning": null,
+  "isHnsEnabled": null,
+  "isLocalUserEnabled": null,
+  "isSftpEnabled": null,
+  "keyCreationTime": {
+    "key1": "2022-05-04T07:11:01.528489+00:00",
+    "key2": "2022-05-04T07:11:01.528489+00:00"
+  },
+  "keyPolicy": null,
+  "kind": "StorageV2",
+  "largeFileSharesState": null,
+  "lastGeoFailoverTime": null,
+  "location": "eastus",
+  "minimumTlsVersion": "TLS1_0",
+  "name": "stagingchsa",
+  "networkRuleSet": {
+    "bypass": "AzureServices",
+    "defaultAction": "Allow",
+    "ipRules": [],
+    "resourceAccessRules": null,
+    "virtualNetworkRules": []
+  },
+  "primaryEndpoints": {
+    "blob": "https://stagingchsa.blob.core.windows.net/",
+    "dfs": "https://stagingchsa.dfs.core.windows.net/",
+    "file": "https://stagingchsa.file.core.windows.net/",
+    "internetEndpoints": null,
+    "microsoftEndpoints": null,
+    "queue": "https://stagingchsa.queue.core.windows.net/",
+    "table": "https://stagingchsa.table.core.windows.net/",
+    "web": "https://stagingchsa.z13.web.core.windows.net/"
+  },
+  "primaryLocation": "eastus",
+  "privateEndpointConnections": [],
+  "provisioningState": "Succeeded",
+  "publicNetworkAccess": null,
+  "resourceGroup": "testRG",
+  "routingPreference": null,
+  "sasPolicy": null,
+  "secondaryEndpoints": null,
+  "secondaryLocation": null,
+  "sku": {
+    "name": "Standard_LRS",
+    "tier": "Standard"
+  },
+  "statusOfPrimary": "available",
+  "statusOfSecondary": null,
+  "storageAccountSkuConversionStatus": null,
+  "tags": {},
+  "type": "Microsoft.Storage/storageAccounts"
+}
+\end{minted}
+
+\subsubsection{Recover from Azure Backup}
+\label{sec:orgd58c2f9}
+The VM was recovered by modifying instructions in the documentation \cite{v-amallick_back_nodate-1}
+to suit our use case.
+% [v-amallickBackRecoverAzure]
+Many steps, like creating a Recovery Services vault, had already been performed and were thus skipped.
+The commands we performed to recover the VM are listed below.
+The process consists of retrieving information used to list relevant recovery points.
+Then, a restore job is started in order to recover the VHD.
+When the restore job is finished,
+it produces a template which is then used to deploy a new VM.
+
+Initial setup:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Get RSV and set context
+$RSV = Get-AzRecoveryServicesVault -Name $RSVName -ResourceGroupName $RGName
+Set-AzRecoveryServicesVaultContext -Vault $RSV
+
+# Select VM
+$namedContainer = Get-AzRecoveryServicesBackupContainer  -ContainerType "AzureVM" -Status "Registered" -FriendlyName $CHName -VaultId $RSV.ID
+$backupitem = Get-AzRecoveryServicesBackupItem -Container $namedContainer  -WorkloadType "AzureVM" -VaultId $RSV.ID
+
+# Get start and end date
+$startDate = (Get-Date).AddDays(-7)
+$endDate = Get-Date
+
+# Store recovery points in variable
+$rp = Get-AzRecoveryServicesBackupRecoveryPoint -Item $backupitem -StartDate $startdate.ToUniversalTime() -EndDate $enddate.ToUniversalTime() -VaultId $RSV.ID
+\end{minted}
+
+Show contents of \texttt{rp}:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+$rp
+
+# RecoveryPointId    RecoveryPointType  RecoveryPointTime      ContainerName                        ContainerType
+# ---------------    -----------------  -----------------      -------------                        -------------
+# 201217219254041    CrashConsistent    5/4/2022 9:30:41 AM    iaasvmcontainerv2;testrg;clickhouse… AzureVM
+# 208189198246820    CrashConsistent    5/2/2022 10:35:59 PM   iaasvmcontainerv2;testrg;clickhouse… AzureVM
+# 210069911701143    CrashConsistent    5/2/2022 12:37:15 PM   iaasvmcontainerv2;testrg;clickhouse… AzureVM
+\end{minted}
+
+The recovery point \texttt{\$rp[1]} (208189198246820) is the one that was triggered manually earlier (see \ref{app:ch-non-perf}).
+It was chosen to be used for recovery.
+
+A restore job was started:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Select recovery point
+$RecPoint = $rp[1]
+
+# Create a restore job for the backup item
+$restorejob = Restore-AzRecoveryServicesBackupItem -RecoveryPoint $RecPoint -StorageAccountName $StagingSAName -StorageAccountResourceGroupName $RGName -TargetResourceGroupName $RGName -VaultId $RSV.ID
+
+# Wait for the restore job to complete
+Wait-AzRecoveryServicesBackupJob -Job $restorejob -Timeout 43200
+
+# Get details of the restore job
+$restorejob = Get-AzRecoveryServicesBackupJob -Job $restorejob -VaultId $RSV.ID
+$details = Get-AzRecoveryServicesBackupJobDetail -Job $restorejob -VaultId $RSV.ID
+
+# Print details
+$details
+# WorkloadName     Operation            Status               StartTime                 EndTime                   JobID
+# ------------     ---------            ------               ---------                 -------                   -----
+# clickhousevm     Restore              Completed            5/4/2022 9:30:38 AM       5/4/2022 9:51:17 AM       3019de90-58c6-4f40-9157-cd53c7546223
+\end{minted}
+
+We then declared some variables based on the details, to be used for future commands:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+$properties = $details.properties
+$storageAccountName = $properties["Target Storage Account Name"]
+$containerName = $properties["Config Blob Container Name"]
+$templateBlobURI = $properties["Template Blob Uri"]
+\end{minted}
+
+The contents of \texttt{\$properties}:
+\begin{minted}[breaklines=true,breakanywhere=true]{text}
+Key                         Value
+---                         -----
+Job Type                    Recover disks
+Target VM Name              vmName
+Target Storage Account Name stagingchsa
+Recovery point time         5/2/2022 10:35:59 PM
+Config Blob Name            config-clickhousevm-19ee2306-41c2-49bf-896f-40aa8172d2ea.json
+Config Blob Container Name  clickhousevm-0edd1295169343bda63beb53c8781b85
+Config Blob Uri             https://stagingchsa.blob.core.windows.net/clickhousevm-0edd1295169343bda63beb53c8781b85/config-clickhousevm-19ee2306-41c2-49bf-896f-40aa8172d2ea.j…
+Target resource group       testRG
+Template Blob Uri           https://stagingchsa.blob.core.windows.net/clickhousevm-0edd1295169343bda63beb53c8781b85/azuredeploy19ee2306-41c2-49bf-896f-40aa8172d2ea.json
+\end{minted}
+
+Deploying the VM from the template:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Template name was copied from the "Template Blob Uri"
+$templateName = "azuredeploy19ee2306-41c2-49bf-896f-40aa8172d2ea.json"
+
+# Set the storage account
+Set-AzCurrentStorageAccount -Name $storageAccountName -ResourceGroupName $RGName
+
+# Generate SAS token
+$templateBlobFullURI = New-AzStorageBlobSASToken -Container $containerName -Blob $templateName -Permission r -FullUri
+
+# Deploy VM (VirtualMachineName had to be specified interactively)
+New-AzResourceGroupDeployment -Name $CHName -ResourceGroupName $RGName -TemplateUri $templateBlobFullURI
+\end{minted}
+
+Output from the \texttt{New-AzResourceGroupDeployment} (The VirtualMachineName had to be supplied via user input, indentation was adjusted for readability):
+\begin{minted}[breaklines=true,breakanywhere=true]{text}
+cmdlet New-AzResourceGroupDeployment at command pipeline position 1
+Supply values for the following parameters:
+(Type !? for Help.)
+VirtualMachineName: clickhouseVM
+
+DeploymentName          : clickhouseVM
+ResourceGroupName       : testRG
+ProvisioningState       : Succeeded
+Timestamp               : 5/4/2022 11:50:42 AM
+Mode                    : Incremental
+TemplateLink            :
+Uri            : https://stagingchsa.blob.core.windows.net/clickhousevm-0edd1295169343bda63beb53c8781b85/azuredeploy19ee2306-41c2-49bf-896f-40aa8172d
+2ea.json?sv=2021-04-10&se=2022-05-04T12%3A46%3A51Z&sr=b&sp=r&sig=Le%2BGX1JoU%2FSivJi9EpXyk0bPHAXxBsww%2BxY7SpGsP9k%3D
+ContentVersion : 1.0.0.0
+Parameters              :
+Name                           Type                       Value
+=============================  =========================  ==========
+virtualMachineName             String                     "clickhouseVM"
+virtualNetwork                 String                     "clickhouseVMVNET"
+virtualNetworkResourceGroup    String                     "testRG"
+subnet                         String                     "clickhouseVMSubnet"
+osDiskName                     String                     "clickhouseVMOSDisk"
+networkInterfacePrefixName     String                     "clickhouseVMRestoredNIC"
+publicIpAddressName            String                     "clickhouseVMRestoredip"
+
+Outputs                 :
+DeploymentDebugLogLevel :
+\end{minted}
+\subsubsection{Repeat test queries}
+\label{sec:org704b2f8}
+The test queries were repeated in \texttt{clickhouse-client}.
+Both were successful and reasonably fast.
+
+Test query 1:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    radio,
+    count() AS c
+FROM cell_towers
+GROUP BY radio
+ORDER BY c DESC
+FORMAT TabSeparated
+
+-- Query id: fa3847f4-e564-4c8b-b2be-e85e2d4db87e
+--
+-- UMTS	20686487
+-- LTE	12101148
+-- GSM	9931312
+-- CDMA	556344
+-- NR	867
+--
+-- 5 rows in set. Elapsed: 0.094 sec. Processed 43.28 million rows, 43.28 MB (462.68 million rows/s., 462.68 MB/s.)
+\end{minted}
+
+Test query 2:
+\begin{minted}[breaklines=true,breakanywhere=true]{sql}
+SELECT
+    mcc,
+    count()
+FROM cell_towers
+GROUP BY mcc
+ORDER BY count() DESC
+LIMIT 10
+FORMAT TabSeparated
+
+-- Query id: f944c5ad-937c-45fa-a9f1-d173d12f7dbc
+--
+-- 310	5024650
+-- 262	2622423
+-- 250	1953176
+-- 208	1891187
+-- 724	1836150
+-- 404	1729151
+-- 234	1618924
+-- 510	1353998
+-- 440	1343355
+-- 311	1332798
+--
+-- 10 rows in set. Elapsed: 0.392 sec. Processed 43.28 million rows, 86.55 MB (110.54 million rows/s., 221.07 MB/s.)
+\end{minted}

@@ -1,0 +1,346 @@
+\section{Delete backups in Azure Backup}
+\label{app:chs2e4}
+In this experiment,
+backups were stopped for the ClickHouse VM,
+and the backups were deleted.
+Then the backups were restored from their soft deleted state,
+and the backups were resumed.
+
+\subsection{Delete Azure Backups via CLI}
+\label{sec:org19b15b2}
+Get the IDs of all backup items:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+$itemIds = az backup item list --resource-group $RGName --vault-name $RSVName | ConvertFrom-Json -AsHashtable | % {$_["id"]}
+\end{minted}
+
+Disable protection for and delete all backup items:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+foreach($id in $itemIds) {
+    az backup protection disable --backup-management-type AzureIaasVM --delete-backup-data true --ids $id
+}
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+Are you sure you want to perform this operation? (y/n): y
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupJobs/bd6f9157-f5d1-4f67-9435-69737c6ab221",
+  "location": null,
+  "name": "bd6f9157-f5d1-4f67-9435-69737c6ab221",
+  "properties": {
+    "actionsInfo": null,
+    "activityId": "4054af82-cd28-11ec-8904-0a580af40e30",
+    "backupManagementType": "AzureIaasVM",
+    "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+    "duration": "0:00:11.138772",
+    "endTime": "2022-05-06T10:35:45.276307+00:00",
+    "entityFriendlyName": "clickhouseVM",
+    "errorDetails": null,
+    "extendedInfo": {
+      "dynamicErrorMessage": null,
+      "estimatedRemainingDuration": null,
+      "internalPropertyBag": null,
+      "progressPercentage": null,
+      "propertyBag": {
+        "Number of Recovery Points": "4",
+        "VM Name": "clickhouseVM"
+      },
+      "tasksList": []
+    },
+    "isUserTriggered": null,
+    "jobType": "AzureIaaSVMJob",
+    "operation": "DeleteBackupData",
+    "startTime": "2022-05-06T10:35:34.137536+00:00",
+    "status": "Completed",
+    "virtualMachineVersion": "Compute"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupJobs"
+}
+\end{minted}
+
+This triggered an alert from Azure Monitor (``Delete Backup Data'' alert).
+
+Listing the backup items:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup item list --resource-group $RGName --vault-name $RSVName
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+[
+  {
+    "eTag": null,
+    "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupFabrics/Azure/protectionContainers/IaasVMContainer;iaasvmcontainerv2;testrg;clickhousevm/protectedItems/VM;iaasvmcontainerv2;testrg;clickhousevm",
+    "location": null,
+    "name": "VM;iaasvmcontainerv2;testrg;clickhousevm",
+    "properties": {
+      "backupManagementType": "AzureIaasVM",
+      "backupSetName": null,
+      "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+      "createMode": null,
+      "deferredDeleteTimeInUtc": "2022-05-06T10:35:34.137536+00:00",
+      "deferredDeleteTimeRemaining": "13.23:48:44.6226505",
+      "extendedInfo": null,
+      "extendedProperties": {
+        "diskExclusionProperties": null,
+        "linuxVmApplicationName": ""
+      },
+      "friendlyName": "clickhouseVM",
+      "healthDetails": [
+        {
+          "code": 400239,
+          "message": "Backup pre-check status of this virtual machine is OK.",
+          "recommendations": [],
+          "title": "IaasVmHealthGreenDefault"
+        }
+      ],
+      "healthStatus": "Passed",
+      "isArchiveEnabled": false,
+      "isDeferredDeleteScheduleUpcoming": null,
+      "isRehydrate": null,
+      "isScheduledForDeferredDelete": true,
+      "kpisHealths": {
+        "BackupOperationStatusKPI": {
+          "resourceHealthDetails": [
+            {
+              "code": 0,
+              "message": "",
+              "recommendations": [],
+              "title": "Success"
+            }
+          ],
+          "resourceHealthStatus": "Healthy"
+        },
+        "RestoreOperationStatusKPI": {
+          "resourceHealthDetails": [
+            {
+              "code": 0,
+              "message": "",
+              "recommendations": [],
+              "title": "Success"
+            }
+          ],
+          "resourceHealthStatus": "Healthy"
+        }
+      },
+      "lastBackupStatus": "Completed",
+      "lastBackupTime": "2022-05-05T22:41:02.855511+00:00",
+      "lastRecoveryPoint": "2022-05-05T22:41:06.408480+00:00",
+      "policyId": "",
+      "policyName": "",
+      "protectedItemDataId": "123146170808998",
+      "protectedItemType": "Microsoft.Compute/virtualMachines",
+      "protectionState": "ProtectionStopped",
+      "protectionStatus": "Healthy",
+      "resourceGuardOperationRequests": null,
+      "sourceResourceId": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Compute/virtualMachines/clickhouseVM",
+      "virtualMachineId": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Compute/virtualMachines/clickhouseVM",
+      "workloadType": "VM"
+    },
+    "resourceGroup": "testRG",
+    "tags": null,
+    "type": "Microsoft.RecoveryServices/vaults/backupFabrics/protectionContainers/protectedItems"
+  }
+]
+\end{minted}
+
+Notice that in the above list of backup items \texttt{protectionState} is set to \texttt{ProtectionStopped},
+but the backup item still exists.
+Because of soft delete, it will be retained for 14 days before being permanently deleted.
+\subsection{Undelete soft deleted backup items}
+\label{sec:org64ad495}
+Undelete the backup item (the script assumes there is only one backup item in the vault, and that it is deleted):
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Store the deleted backup
+$DeletedBackup = az backup item list --resource-group $RGName --vault-name $RSVName | ConvertFrom-Json -AsHashtable
+
+# Store the container
+$Container = az backup container list --resource-group $RGName --vault-name $RSVName --backup-management-type AzureIaasVM | ConvertFrom-Json -AsHashtable
+
+# Undelete the deleted backup
+az backup protection undelete --container-name $Container.name --item-name $DeletedBackup.name --resource-group $RGName --vault-name $RSVName --backup-management-type AzureIaasVM --workload-type VM
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupJobs/5b7ed38c-051b-419e-9257-5a709bd17d91",
+  "location": null,
+  "name": "5b7ed38c-051b-419e-9257-5a709bd17d91",
+  "properties": {
+    "actionsInfo": null,
+    "activityId": "13481c16-ceba-11ec-8f9e-0a580af44d46",
+    "backupManagementType": "AzureIaasVM",
+    "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+    "duration": "0:00:11.188451",
+    "endTime": "2022-05-08T10:32:05.635967+00:00",
+    "entityFriendlyName": "clickhouseVM",
+    "errorDetails": null,
+    "extendedInfo": {
+      "dynamicErrorMessage": null,
+      "estimatedRemainingDuration": null,
+      "internalPropertyBag": null,
+      "progressPercentage": null,
+      "propertyBag": {
+        "Undelete flag": "True",
+        "VM Name": "clickhouseVM"
+      },
+      "tasksList": []
+    },
+    "isUserTriggered": null,
+    "jobType": "AzureIaaSVMJob",
+    "operation": "Undelete",
+    "startTime": "2022-05-08T10:31:54.447516+00:00",
+    "status": "Completed",
+    "virtualMachineVersion": "Compute"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupJobs"
+}
+\end{minted}
+\subsection{Re-enable backup}
+\label{sec:org8712338}
+In order to delete the backup,
+backup had to be disabled for the VM.
+Now it is time to re-enable backup for the VM.
+
+Enable backup for VM (script assumes there is one VM):
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+# Get the backup items
+$itemId = az backup item list --resource-group $RGName --vault-name $RSVName | ConvertFrom-Json -AsHashtable | % {$_["id"]}
+
+# Resume backup protection
+az backup protection resume --policy-name $PolicyName --ids $itemId
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+{
+  "eTag": null,
+  "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupJobs/5b12880d-3229-4fb6-82b8-273cbfee84e1",
+  "location": null,
+  "name": "5b12880d-3229-4fb6-82b8-273cbfee84e1",
+  "properties": {
+    "actionsInfo": null,
+    "activityId": "f8984456-cebc-11ec-bebc-0a580af44d46",
+    "backupManagementType": "AzureIaasVM",
+    "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+    "duration": "0:00:11.105737",
+    "endTime": "2022-05-08T10:52:50.612509+00:00",
+    "entityFriendlyName": "clickhouseVM",
+    "errorDetails": null,
+    "extendedInfo": {
+      "dynamicErrorMessage": null,
+      "estimatedRemainingDuration": null,
+      "internalPropertyBag": null,
+      "progressPercentage": null,
+      "propertyBag": {
+        "Policy Name": "DefaultPolicy",
+        "VM Name": "clickhouseVM"
+      },
+      "tasksList": []
+    },
+    "isUserTriggered": null,
+    "jobType": "AzureIaaSVMJob",
+    "operation": "ConfigureBackup",
+    "startTime": "2022-05-08T10:52:39.506772+00:00",
+    "status": "Completed",
+    "virtualMachineVersion": "Compute"
+  },
+  "resourceGroup": "testRG",
+  "tags": null,
+  "type": "Microsoft.RecoveryServices/vaults/backupJobs"
+}
+\end{minted}
+
+Verifying the results:
+\begin{minted}[breaklines=true,breakanywhere=true]{powershell}
+az backup item list --resource-group $RGName --vault-name $RSVName
+\end{minted}
+
+Output:
+\begin{minted}[breaklines=true,breakanywhere=true]{json}
+[
+  {
+    "eTag": null,
+    "id": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupFabrics/Azure/protectionContainers/IaasVMContainer;iaasvmcontainerv2;testrg;clickhousevm/protectedItems/VM;iaasvmcontainerv2;testrg;clickhousevm",
+    "location": null,
+    "name": "VM;iaasvmcontainerv2;testrg;clickhousevm",
+    "properties": {
+      "backupManagementType": "AzureIaasVM",
+      "backupSetName": null,
+      "containerName": "iaasvmcontainerv2;testrg;clickhousevm",
+      "createMode": null,
+      "deferredDeleteTimeInUtc": null,
+      "deferredDeleteTimeRemaining": null,
+      "extendedInfo": null,
+      "extendedProperties": {
+        "diskExclusionProperties": null,
+        "linuxVmApplicationName": ""
+      },
+      "friendlyName": "clickhouseVM",
+      "healthDetails": [
+        {
+          "code": 400239,
+          "message": "Backup pre-check status of this virtual machine is OK.",
+          "recommendations": [],
+          "title": "IaasVmHealthGreenDefault"
+        }
+      ],
+      "healthStatus": "Passed",
+      "isArchiveEnabled": false,
+      "isDeferredDeleteScheduleUpcoming": null,
+      "isRehydrate": null,
+      "isScheduledForDeferredDelete": null,
+      "kpisHealths": {
+        "BackupOperationStatusKPI": {
+          "resourceHealthDetails": [
+            {
+              "code": 0,
+              "message": "",
+              "recommendations": [],
+              "title": "Success"
+            }
+          ],
+          "resourceHealthStatus": "Healthy"
+        },
+        "RestoreOperationStatusKPI": {
+          "resourceHealthDetails": [
+            {
+              "code": 0,
+              "message": "",
+              "recommendations": [],
+              "title": "Success"
+            }
+          ],
+          "resourceHealthStatus": "Healthy"
+        }
+      },
+      "lastBackupStatus": "Completed",
+      "lastBackupTime": "2022-05-05T22:41:02.855511+00:00",
+      "lastRecoveryPoint": "2022-05-05T22:41:06.408480+00:00",
+      "policyId": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.RecoveryServices/vaults/myRSV/backupPolicies/DefaultPolicy",
+      "policyName": "DefaultPolicy",
+      "protectedItemDataId": "123146170808998",
+      "protectedItemType": "Microsoft.Compute/virtualMachines",
+      "protectionState": "Protected",
+      "protectionStatus": "Healthy",
+      "resourceGuardOperationRequests": null,
+      "sourceResourceId": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Compute/virtualMachines/clickhouseVM",
+      "virtualMachineId": "/subscriptions/4b48eb85-91f3-4902-b74b-e84641fb6785/resourceGroups/testRG/providers/Microsoft.Compute/virtualMachines/clickhouseVM",
+      "workloadType": "VM"
+    },
+    "resourceGroup": "testRG",
+    "tags": null,
+    "type": "Microsoft.RecoveryServices/vaults/backupFabrics/protectionContainers/protectedItems"
+  }
+]
+\end{minted}
+
+\texttt{protectionState} is \texttt{Protected} and \texttt{protectionStatus} is \texttt{Healthy}.
+This was also verified in the Azure Portal.

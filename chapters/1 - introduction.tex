@@ -1,0 +1,93 @@
+\chapter{Introduction}
+
+\section{Background}
+Ransomware is one of the biggest cyber threat businesses and organisations face today \cite{hassan_ransomware_2019}. Ransomware has been around since the early days of computers, and was first delivered via floppy disks, targeting AIDS researchers in 1989 \cite{waddell_computer_2016}. With the advent asymmetric encryption schemes, the creation and growth of cryptocurrencies, and an ever growing reliance on digital workspaces, ransomware is bigger than ever \cite{noauthor_threat_nodate}.
+
+As more and more organisations go through a digital transformation, in particular during the Covid-19 pandemic, more and more work is done digitally, and via the internet. The risk surface is greater than ever, and ever interconnected systems prove to be great targets for ransomware threat actors. Ransomware gangs operate as legitimate software companies, delivering ransomware-as-a-service to less sophisticated cybercriminals who launch attacks as their affiliates -- splitting the profits \cite{noauthor_threat_nodate}. 
+
+No longer is ransomware spread widely and randomly to any system that will run it. Ransomware gangs are now looking to buy access to corporate networks, and partner with affiliates that are willing to perform the attack on that network. Weeks of research now go into a single attack, to ensure it is as effective as possible, and to ensure that the ransom is set at an amount that maximises the likelyhood of a payout \cite{seals_2021_nodate}.
+
+Many businesses are moving to the cloud, and rely on cloud platforms to maintain security. A big advantage of this is that cloud platform providers are inherently interested in maintaining a secure platform -- or their reputation will suffer. At the same time they are always in development, and the difference between marketing material designed to sell subscriptions to services and documentation designed to warn cloud architects of security flaws can be small. 
+
+This is the background for our thesis topic. In a digital landscape where ransomware is one of the biggest threats, and data is an organisations greatest asset, can organisations rely on the security solutions in the cloud? Despite the fancy words and fantastical features of security solutions -- do they hold up? 
+
+\section{Thesis Topic} 
+Our thesis topic is to analyze cloud backup architectures with regards to their resistance to ransomware attacks, and recommend a set of features to aid implementation in a secure manner. 
+
+We have chosen to focus on the Azure cloud platform, the second largest cloud platform by revenue \cite{richter_amazon_2022}. Within Azure we will look at two different databases, one managed and one unmanaged, and analyze different backup options for both. In order to aid us in this search, we have developed the following research questions that we will answer based on our analysis.
+\subsection{Research questions} \label{RQ}
+\subsubsection{Research question 1}
+What are some  best practices for securing backups against ransomware and other malware, and how can they be implemented in Azure?
+\subsubsection{Research question 2}
+Are Azure's security mechanisms effective against a modern ransomware attack?
+
+
+
+\subsection{Partner organisation}
+This project was completed in cooperation with the Norwegian energy company TrønderEnergi, who suggested the topic, and who have been providing guidance throughout the project. Because of this cooperation certain deliminations and choices regarding the technologies used have been made. 
+
+We tested two databases in our analysis. The first is a ClickHouse database running in a VM in Azure. The other is a single server PostgreSQL database hosted on Azure. These were both chosen because TrønderEnergi uses them in their production environment, and because they were different enough to provide generalized results for managing backups in Azure. As becomes apparent throughout the report, they are supported by a very different set of security-features within Azure. 
+
+To analyze the backup solutions, a number of scenarios were created. 
+The scenarios were made in cooperation with TrønderEnergi,
+which was done in order to ensure our tests matched the threat 
+landscape the an organisation such as theirs is facing. 
+
+% [TODO] Nevne 10 TB?
+
+
+\section{Thesis outline}
+
+\paragraph{Chapter 1: Introduction} 
+In the introductory chapter we provide the background for the project,
+as well as the topic and scope of our report.
+% This is where a more thorough outline is as well, to supplement the contents.  
+
+\paragraph{Chapter 2: Theory} 
+In the theory chapter,
+we examine the current ransomware threat landscape and how 
+ransomware works in order to be able to simulate it in our analysis.
+We also use this chapter to present any external sources that 
+provide the theoretical background for our later deliminations in terms of our method and analysis.
+This includes sources that define backups,
+the relevant resources and services in Azure,
+as well information about ClickHouse and PostgreSQL.
+Finally we also look at some relevant security best practises 
+that will become relevant when discussing the research questions toward the end of the report. 
+
+\paragraph{Chapter 3: Method} 
+In this chapter we define the criteria which our security implementation will have to pass in order to prove effective.
+This is not only criteria in terms of how secure it is,
+but also non-functional requirements such as performance, cost and ease-of-use.
+The chapter also outlines how experiments were performed,
+as well as how our test environments were set up. 
+
+\paragraph{Chapter 4: Results} 
+In this chapter, the results of our experiments are presented.
+These results are discussed briefly for each experiment. 
+
+
+\paragraph{Chapter 5: Discussion}
+% [TODO] Fiks - Good?
+In this chapter we answer the research questions from \ref{RQ}, and use the experiences of the analysis and its results from chapter \ref{Results} discuss. We evaluate the backup solutions we analysed, and look at the results in a greater context. 
+
+\paragraph{Chapter 6: Conclusions}
+% [TODO] Fiks - Good?
+In the conclusion we summarise our findings and answer the research questions. We will also look at future work and this projects place in the greater picture.
+
+
+\section{Scope and delimitation}
+The goal of this project was to assess backup solutions in Azure, and how effectively they mitigate the risk of data loss when attacked by ransomware. The backup solutions back up two different databases hosted on the public cloud platform Azure. . The databases were \textit{Azure Database for PostgreSQL} and \textit{ClickHouse}.
+
+While the project delves into the current ransomware threat landscape, the analysis did not use real ransomware, as it seemed an unnecessary complication of our analysis without providing any significant insights. The goal was rather to determine how well we could protect our backups with the security features in Azure, not how ransomware operates in a system or network. 
+
+% The methodology is therefore as follows.
+The methodology was as follows:
+First we determined our scope,
+and began researching in Azure documentation and ransomware and security more in general.
+Once we had a good idea of the the threat landscape, we decided to define some 
+scenarios which outline potential attacks that a good backup solution should be able to withstand.
+Finally we created test infrastructures and performed experiments based on the scenarios.
+The results were used to evaluate the different backup solutions with regards to certain criteria.
+
+Outside the scope of this project are most of the other ways of increasing security in an organisation that is also necessary to prevent ransomware attacks from occurring. Be it cultural, technical or organizational aspects of security, they are beyond our scope. We will only focus on the security features of backup solutions in Azure, and considerations on how to implement it. 

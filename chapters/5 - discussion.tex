@@ -1,0 +1,119 @@
+\chapter{Discussion} \label{Discussion}
+
+% In this chapter, we do some reflection with regards to how each 
+% backup solution is able to deal with each scenario.
+
+Our initial thesis topic was to analyze cloud backup architectures with regards to their resistance to ransomware attacks. In the following discussion, we answer the research questions we have defined \ref{RQ}. In order to do this we compare and evaluate the different backup solutions we tested in regards to the criteria laid out in the method chapter \ref{criteria}.
+
+\\ 
+The research questions were: 
+\paragraph{Research question 1}
+What are some  best practices for securing backups against ransomware and other malware, and how can they be implemented in Azure?
+\paragraph{Research question 2}
+Are Azure's security mechanisms effective against a modern ransomware attack?
+\\ \\
+
+\section{Discussion of backup solutions for each database}
+The purpose of discussing and comparing the backup solutions at the core of our analysis is to identify relevant findings in order to best answer our research questions. 
+
+\subsection{ClickHouse}
+Based on our findings, as presented in chapter \ref{Results}, we will discuss the two backup solutions we tested for ClickHouse: Azure Backup, and clickhouse-backup. 
+The former is the solution that we found to both the most secure, reliable, and easy to use, all in all.  
+
+We found clickhouse-backup to be generally more unreliable and complicated to use in our experience. Unless the organization wishes to back up ClickHouse data outside of Azure,  we do not see much reason to choose clickhouse-backup implementation in an Azure environment,  as Azure Backup provides more security features and an easier setup. When we tried to recover 1TB of data with clickhouse-backup, the restore operation failed, and we were unable to find the cause. Obscure error messages are not a welcome sight when trying to recover from a ransomware attack. While we were unable to perform a proper performance test, we did get an idea of the potential recovery speed of the solution. If upload and download speeds are similar, we can expect a recovery time of around 3.3 hours for 1TB of data, which is much slower than Azure Backup's 3-7 minutes for the same amount of data. Another downside of clickhouse-backup is the lack of support for Multi-User authorization  (or rather, the lack of support for MUA in Azure Blob Storage). Hopefully, Microsoft will implement MUA for Blob storage in the future.
+
+With that being said, the solution was able to withstand two of the three scenarios,  and with proper monitoring tools and Role-based access control in place there is nothing to suggest that clickhouse-backup will be an insecure solution. It has support for many of the same security features as Azure Backup, and it is also possible to put the backup in a different cloud environment entirely if needed.  Because of the option to use Blob storage, the cost of clickhouse-backup is lower than that of Azure Backup. This may be a decisive factor in a cost-benefit analysis of the different alternatives. 
+
+The advantages of Azure Backup on the other hand are its ease of use, and its support for some of the better security features available, like MUA. One of the features that highlight Azure backup's ease of use is the configuration of backup policies. Azure Backup provides great control over retention, backup frequency, data redundancy, through a graphical user interface. In clickhouse-backup, configuration is done by editing a YAML file, which is far less intuitive. Another area where Azure Backup is more intuitive than clickhouse-backup is error messages. We found that Azure Backup provides clear and understandable error messages, both in the CLI and in the Portal, when something goes wrong.  The big disadvantage compared to clickhouse-backup is however the price for the service. 
+
+% Azure backup is easy to both deploy, configure and monitor through the Azure portal. The Recovery Services vault has an intuitive design and prompts for newer security features. Multi-User authorization was implemented just months before we started working on this project, and we were prompted to enable the feature when configuring the vault. The possibility to either use scripts or orchestration-tools was also positive. 
+
+Soft delete and Multi-user authorization are two security features that have proven to be very effective. When used together, as they are designed to be, they make it practically impossible to lose data without the attacker compromising two specific administrator accounts -- which we find unlikely.
+
+Our experience with restoring from the Azure Backup were also positive. When Instant Restore points were available, the performance was excellent -- and far more reliable than clickhouse-backup. After our experiences with restoring from both backup solutions the Azure Backup process was simple, effective and reliable. Exactly what you want from a backup solution. 
+
+While Azure Backup locks the organization in to a single cloud service provider,
+and that may have its disadvantages, there are also advantages to using a single platform.
+Azure Backup provide central monitoring of backups via the Backup Center service, which also provides a good overview to ensure compliance and security. Security should be easy and automatic, and Azure Backup manages to go a long way to get there. 
+
+It seems Azure Monitor has a higher degree of integration with Azure Backup, than with Blob storage. After all, Blobs are a general purpose storage solutions, while Azure Backup is more specific.
+
+\subsection{PostgreSQL}
+For PostgreSQL, we are not as focused on comparing alternative backup solutions, as both Azure Backup for PostgreSQL and Point-in-time Restore can, and should be, used in combination. These two solutions complemented each other well in a common architecture. Neither service did everything perfectly, but combining the great RPO, soft delete, and ease of use of PITR, with the longer retention and more granular control of Azure backup provided an excellent total package. 
+
+The overall process of backing up and restoring a managed PostgreSQL instance in Azure left us impressed with the ease of use and efficiency of the processes. Setting up a single server instance of Azure Database for PostgreSQL and then backing it up in a Backup vault was a quick and intuitive, and with the automatically enabled Point-in-time-Restore (PITR)-feature, restoring to any previous point in time is easy. 
+
+By default, there are no automatic alerts for critical actions performed on backup data in a Backup vault. This means that if an attacker has managed to compromise the backup administrator, and then deletes the backup instance, it is possible no one might know, unless they actively and manually monitor the Backup Center. Manually enabling alert rules for backup delete actions is critical when relying on a Backup vault in a production environment. Testing that this functionality is set up correctly is also important, as our experiments showed that the alert system is somewhat fiddly in the way that it has to be implemented.
+
+With no soft delete or Multi-user authorization support, a compromised backup admin can cause great damage to backup instances. Luckily PITR is supported even if a database instance is deleted. So both restoring to an earlier state, and undeleting a database instance is possible, as long as one operates within the configured retention time of up to 35 days.
+
+An important security feature that is supported by Backup vaults is RBAC. As mentioned, the backup administrator becomes a single point of failure for the Backup instance, so separating the backup administrator from accessing administrator privileges for the database instance is critical to security. This ensures no single point of failure for the database data itself, and essentially becomes an air gap between the database and its backup. 
+
+To minimize RTO we recommend restoring from the Backup vault data, as its restore times generally were much quicker, compared to PITR. However, depending on the frequency of backups as per the backup policy, it might prove more effective with regards to RPO to choose a specific PITR-point to restore from. 
+
+As discussed in the previous chapter, there Backup vaults have less support for the newer security features in Azure than Recovery Services vaults, and as such fewer security features available for Azure Backup for PostgreSQL, than in Azure Backup for VMs. Despite this we found the backup solution we tested to be quite secure. 
+
+While a secure and effective backup architecture can be built for Azure database for PostgreSQL, there is no denying that Recovery Services vaults are inherently more secure than Backup vaults. Recovery Services vaults support features such as MUA, soft delete, and automatic alerts.  As long as only Backup vaults support PostgreSQL servers, they will be secure as long as the overall level of security in the organisation is high enough. Given that with time, Azure backup for PostgreSQL support is added to Recovery Services vaults, any organisation should upgrade to a Recovery Services vault as soon as it becomes available. 
+
+\section{Research questions}
+The purpose of this project was to answer the research questions from chapter \ref{RQ}, using our experience with the backup solutions for the two different databases in Azure to do so. 
+% En setning til om noe?
+
+\subsection{Research question 1}
+\paragraph{What are some best practices for securing backups against ransomware and other malware, and how can they be implemented in Azure?}
+
+Protecting backups from ransomware is different in the cloud age, than in the time of physical infrastructures, but the principles largely remain the same. It is important to protect against unauthorized access to the backups, and against modifications or deletion. The CIA triad was described in section \ref{CIA}, and all three principles are important for securing backups.
+
+Protecting against unauthorized access is important to ensure both the confidentiality, and integrity of the backups. This can be done outside of cloud platforms with physical barriers separating the servers from unwanted persons. The use of passwords or other access control mechanisms is also standard practice. In the cloud age however, everything is available over the internet, and the security controls must address this. 
+
+% Noe om at man generelt bør følge zero trust, osv?
+% RBAC er jo kinda zero trust related.
+
+In Azure unauthorized access is hindered with Role-based access control (see \ref{theory:RBAC} for details). Through the use of strict permissions and roles for all users, the system can prevent unauthorized access to specified resources or resource groups. This means that only a very limited set of people can access the backup data, and even fewer can perform modifications to it, when implemented properly. 
+
+Backups must also be protected from changes to ensure the integrity of the data. It is essential when a backup is restored to a production system, that the data can be trusted to be the same as when it was backed up. In Azure Backup there is no way to change backups after they are created. When a backup job runs, it is allowed to write the backup into storage, but after the backup job is finished, the data is read-only. This ensures that an attacker can not encrypt backups directly, or tamper with them by any other means than deleting them. 
+
+Naturally it follows that backups must also be available to authorized personnel in a timely manner. This means that they for example should not be able to be deleted by unauthorized users. In Azure Backups Recovery Services vaults, this can be ensured with several features. 
+Soft delete prevents all backup data from being permanently deleted within 14 days of attempting to delete it.
+During this time, it is possible to recover the data by undeleting it.
+Multi-user authorization prevents data from being deleted (and soft delete from getting disabled) without the authorization from another administrator account beyond the backup administrator.
+
+\subsection{Research question 2}
+\paragraph{Are Azure's security mechanisms effective against a modern ransomware attack?}
+
+Modern ransomware is created by professional threat actors, and the modern encryption schemes used are not going to be able to be bypassed without the decryption key. Falling victim to ransomware will require data recovery from some other source. Human-operated ransomware is also usually preceded by weeks of reconnaissance, and all the systems the attacker is able to reach will likely be targeted by the ransomware, or otherwise attacked to increase the highest likelihood of the ransom being paid.
+
+The weakness of off-site backups on systems that are still available over the internet is that the ransomware very well could target them as well. This is one of the advantages of Azure Backup -- the vaults provide a way to store backup data in a read-only state, which makes it impossible to modify that data, apart from deleting it. New backups in Azure Backup do not overwrite existing ones, until the retention period for the older backups run out. That means that a compromised system that is getting backed up cannot tamper with old backups by sending bad data. 
+
+This means that one of the major vulnerabilities of Azure's backup solutions is going to come from a compromised backup administrator account. Our scenarios addressed this, and the backup solutions for each database was able to resist these scenarios. This indicates a resilience and reliability of the backup solutions which meets the standards of security that organisations should expect. 
+
+Separating privileges, which can help eliminate single points of failure, as well as lowering the chance of unauthorized access, is crucial. It also lowers the risk of backups getting deleted or tampered with in some way. We believe Azure's implementation of RBAC is effective, based on our tests. Combined with MUA, RBAC appears to be very secure. 
+
+Soft delete was an essential security feature in Azure, and the biggest disadvantage of this feature is that it is not supported by more services in Azure. Throughout our analysis it has been one of the most important features to ensure the availability of backup data. Together with MUA, this made backup data in Recovery Services vaults as secure as we could hope for, by preventing data loss even with a fully compromised backup administrator account. 
+
+On the other hand, it is noticeable that the features in cloud platforms are under constant development. Protecting backup data in Backup vaults (used by Azure Backup for PostgreSQL), compared to Recovery Services vaults (used by Azure Backup for VMs) is more difficult. The addition of new features may introduce bugs or security flaws, which puts the customer at risk. The customer has to trust that the cloud provider will fix such vulnerabilities. Part of the responsibility of ensuring security is shifted from the administrators to the cloud services providers, which has both advantages and disadvantages.
+
+In total it is our evaluation that Azure's security mechanisms do protect against modern ransomware attacks, but some more than others. Azure Backup supports many different services and supports a number of different workloads, but the security features supported for each service varies. In the case of Azure Backup for VMs, we believe it is sufficient to prevent modern ransomware attacks, if MUA is configured. Azure Backup for PostgreSQL is still lacking some features like MUA, making it less resilient against ransomware.  The existence of Point-in-time restore mitigates the shortcomings of Azure Backup in this specific instance, though. In general, Azure provides the tools needed to protect against a modern ransomware attack, and in the case of services that use Recovery Services vaults, it does most of this right out of the box. 
+
+\section{Future work/Limitations}
+This thesis explored several different technologies that all could have been explored in much more depth if we had chosen to do so. As we limited the scope of the thesis to a less detailed view of each of the databases backup possibilities, we list some of the areas we chose not to explore further.    
+
+\paragraph{PostgreSQL Infrastructure Double encryption effect:}
+Future research could measure whether there is a noticable difference with and without the use of infrasctructure double encryption feature when creating the PostgreSQL-server instance. To avoid expected margin of error the database should be scaled up to 40 GB, and ought to be coupled with more thorough performance tests to evaluate how different features affect performance
+
+\paragraph{PostgreSQL Flexible server, being burstable effect on restore time}
+It is also possible to test out whether having a burstable flexible server affects restore time where adding to vCores when restoring will decrease the restoration time compared to operating on the normal amount used in a general purpose single server. This should also use scaled up databases (40 GB), 
+
+\paragraph{More backup solutions for ClickHouse}
+There were a number of backup solutions for clickhouse that we chose to not explore beyond the theory. Limiting the number of technologies we had to explore was necassary, but future work could explore a wider range of backup solutions. 
+
+\paragraph{Successful performance test for clickhouse-backup}
+Whilst initially within the scope of this thesis, we were unsuccessful in performing a performance test for clickhouse-backup. As such, we are not sure how this compares to the performance of Azure backup. 
+
+\paragraph{Multi-cloud backup using clickhouse-backup}
+One of the advantages of clickhouse-backup was that the data could be stored wherever you choose. The potential advantages of using clickhouse-backup to store backup data in a different cloud environment should be explored in future. A multi-cloud backup solution in general is something this thesis did not explore, but something that would be interesting. 
+
+
+% Noe om clickhouse-backup til AWS? Type multi-cloud
+
+
